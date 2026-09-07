@@ -15,13 +15,11 @@ import MemberPortal from './pages/MemberPortal';
 import AuditLogs from './pages/AuditLogs';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
-import SplashScreen from './components/SplashScreen';
 import { Loader2 } from 'lucide-react';
 
 // Inner app mengakses context
 function AppInner() {
   const { loading, currentUser, currentRole } = useAttendance();
-  const [showSplash, setShowSplash] = useState(true);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(
     () => (currentRole === 'ANGGOTA_DPRD' ? 'member_portal' : 'dashboard')
@@ -37,19 +35,12 @@ function AppInner() {
   }, [currentRole]);
 
   if (!currentUser) {
-    return (
-      <>
-        {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
-        <Login />
-      </>
-    );
+    return <Login />;
   }
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-20 md:pb-0">
-      {/* Splash Screen on Initial Load */}
-      {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
-
+      
       {/* Navigation Navbar Header */}
       <Navbar onOpenMenu={() => setIsDrawerOpen(true)} />
 
@@ -79,13 +70,13 @@ function AppInner() {
 
         {/* Dynamic Main View Panel */}
         <main className="flex-1 min-w-0">
-          {activeTab === 'member_portal' && <MemberPortal />}
+          {activeTab === 'member_portal' && <MemberPortal onNavigate={setActiveTab} />}
           {activeTab === 'dashboard'     && <Dashboard onNavigate={setActiveTab} />}
           {activeTab === 'webcam_scan'   && <AttendanceScan />}
           {activeTab === 'gps_mobile'    && <GPSAttendance />}
           {activeTab === 'member_qr'     && <MemberQRCard />}
           {activeTab === 'raport'        && <RaportList />}
-          {activeTab === 'members'       && <MemberList />}
+          {activeTab === 'members'       && <MemberList onNavigate={setActiveTab} />}
           {activeTab === 'activities'    && <ActivityList />}
           {activeTab === 'audit'         && <AuditLogs />}
           {activeTab === 'settings'      && <Settings />}
@@ -99,7 +90,7 @@ function AppInner() {
         onOpenMenu={() => setIsDrawerOpen(true)}
       />
 
-      {/* Footer (Desktop only or unobtrusive) */}
+      {/* Footer */}
       <footer className="no-print border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-3 sm:py-4 text-center text-[10px] sm:text-xs text-slate-500">
         <p>© 2026 SI-RAPORT BK DPRD • Sistem Informasi Absensi, Monitoring & Raport Kehadiran Anggota DPRD</p>
       </footer>
@@ -114,4 +105,3 @@ export default function App() {
     </AttendanceProvider>
   );
 }
-

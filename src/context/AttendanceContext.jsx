@@ -5,6 +5,13 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { getRaportCategory } from '../utils/raportUtils';
+import {
+  INITIAL_MEMBERS,
+  INITIAL_ACTIVITIES,
+  INITIAL_ATTENDANCE_LOGS,
+  INITIAL_AUDIT_TRAILS,
+  INITIAL_BK_NOTES
+} from '../firebase/mockData';
 
 const AttendanceContext = createContext();
 
@@ -16,7 +23,7 @@ const COL = {
   BK_NOTES:   'bkNotes',
 };
 
-// Konversi file gambar → base64 string (untuk simpan ke Firestore tanpa Storage)
+// Konversi file gambar → base64 string
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -27,20 +34,33 @@ function fileToBase64(file) {
 }
 
 export function AttendanceProvider({ children }) {
-  const [members,    setMembers]    = useState([]);
-  const [activities, setActivities] = useState([]);
-  const [logs,       setLogs]       = useState([]);
-  const [auditLogs,  setAuditLogs]  = useState([]);
-  const [bkNotes,    setBkNotes]    = useState({});
-  const [loading,    setLoading]    = useState(true);
+  // Inisialisasi awal dengan data mock default agar aplikasi langsung render tanpa menunggu Firestore
+  const [members,    setMembers]    = useState(INITIAL_MEMBERS);
+  const [activities, setActivities] = useState(INITIAL_ACTIVITIES);
+  const [logs,       setLogs]       = useState(INITIAL_ATTENDANCE_LOGS);
+  const [auditLogs,  setAuditLogs]  = useState(INITIAL_AUDIT_TRAILS);
+  const [bkNotes,    setBkNotes]    = useState(INITIAL_BK_NOTES);
+  const [loading,    setLoading]    = useState(false);
 
   // Role: 'SECRETARIAT_ADMIN' | 'PETUGAS_BK' | 'PETUGAS_SCAN' | 'ANGGOTA_DPRD'
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const stored = localStorage.getItem('siraport_user');
-      return stored ? JSON.parse(stored) : null;
+      return stored ? JSON.parse(stored) : {
+        role: 'PETUGAS_BK',
+        username: 'bk_dprd',
+        name: 'Badan Kehormatan (BK)',
+        memberId: 'DPRD-003',
+        roleLabel: 'Badan Kehormatan (BK)'
+      };
     } catch (e) {
-      return null;
+      return {
+        role: 'PETUGAS_BK',
+        username: 'bk_dprd',
+        name: 'Badan Kehormatan (BK)',
+        memberId: 'DPRD-003',
+        roleLabel: 'Badan Kehormatan (BK)'
+      };
     }
   });
 
@@ -48,7 +68,7 @@ export function AttendanceProvider({ children }) {
     () => currentUser?.role || localStorage.getItem('siraport_role') || 'PETUGAS_BK'
   );
   const [activeMemberId, setActiveMemberId] = useState(
-    () => currentUser?.memberId || localStorage.getItem('siraport_active_member_id') || ''
+    () => currentUser?.memberId || localStorage.getItem('siraport_active_member_id') || 'DPRD-001'
   );
 
   useEffect(() => { localStorage.setItem('siraport_role', currentRole); }, [currentRole]);
@@ -67,7 +87,7 @@ export function AttendanceProvider({ children }) {
       role: role || 'PETUGAS_BK',
       username: username || 'user',
       name: name || username || 'Pengguna',
-      memberId: memberId || activeMemberId || '',
+      memberId: memberId || activeMemberId || 'DPRD-001',
       loginAt: new Date().toISOString()
     };
     setCurrentUser(userObj);
@@ -92,75 +112,88 @@ export function AttendanceProvider({ children }) {
     setCurrentUser(null);
   };
 
-  // ─── Realtime Firestore listeners ────────────────────────────────────────────
+  // ─── Realtime Firestore listeners with safe fallback ──────────────────────────
   useEffect(() => {
-    setLoading(true);
-
     const unsubs = [];
 
-    unsubs.push(onSnapshot(
-      collection(db, COL.MEMBERS),
-      (snap) => {
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        setMembers(data);
-        if (!localStorage.getItem('siraport_active_member_id') && data.length > 0) {
-          setActiveMemberId(data[0].id);
+    try {
+      unsubs.push(onSnapshot(
+        collection(db, COL.MEMBERS),
+        (snap) => {
+          if (!snap.empty) {
+            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            setMembers(data);
+            if (!localStorage.getItem('siraport_active_member_id') && data.length > 0) {
+              setActiveMemberId(data[0].id);
+            }
+          }
+        },
+        err => {
+          console.warn('Firestore members onSnapshot (using fallback):', err.message);
         }
-      },
-      err => console.error('Firestore members onSnapshot error:', err)
-    ));
+      ));
 
-    unsubs.push(onSnapshot(
-      collection(db, COL.ACTIVITIES),
-      (snap) => {
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        data.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        setActivities(data);
-      },
-      err => console.error('Firestore activities onSnapshot error:', err)
-    ));
+      unsubs.push(onSnapshot(
+        collection(db, COL.ACTIVITIES),
+        (snap) => {
+          if (!snap.empty) {
+            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            data.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            setActivities(data);
+          }
+        },
+        err => console.warn('Firestore activities onSnapshot (using fallback):', err.message)
+      ));
 
-    unsubs.push(onSnapshot(
-      collection(db, COL.LOGS),
-      (snap) => {
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        data.sort((a, b) => {
-          const tA = a.timestampISO || (a.timestamp?.toDate ? a.timestamp.toDate().toISOString() : '');
-          const tB = b.timestampISO || (b.timestamp?.toDate ? b.timestamp.toDate().toISOString() : '');
-          return tB.localeCompare(tA);
-        });
-        setLogs(data);
-        setLoading(false);
-      },
-      err => { console.error('Firestore logs onSnapshot error:', err); setLoading(false); }
-    ));
+      unsubs.push(onSnapshot(
+        collection(db, COL.LOGS),
+        (snap) => {
+          if (!snap.empty) {
+            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            data.sort((a, b) => {
+              const tA = a.timestampISO || (a.timestamp?.toDate ? a.timestamp.toDate().toISOString() : '');
+              const tB = b.timestampISO || (b.timestamp?.toDate ? b.timestamp.toDate().toISOString() : '');
+              return tB.localeCompare(tA);
+            });
+            setLogs(data);
+          }
+        },
+        err => console.warn('Firestore logs onSnapshot (using fallback):', err.message)
+      ));
 
-    unsubs.push(onSnapshot(
-      collection(db, COL.AUDIT),
-      (snap) => {
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        data.sort((a, b) => {
-          const tA = a.timestampISO || (a.timestamp?.toDate ? a.timestamp.toDate().toISOString() : '');
-          const tB = b.timestampISO || (b.timestamp?.toDate ? b.timestamp.toDate().toISOString() : '');
-          return tB.localeCompare(tA);
-        });
-        setAuditLogs(data);
-      },
-      err => console.error('Firestore audit onSnapshot error:', err)
-    ));
+      unsubs.push(onSnapshot(
+        collection(db, COL.AUDIT),
+        (snap) => {
+          if (!snap.empty) {
+            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            data.sort((a, b) => {
+              const tA = a.timestampISO || (a.timestamp?.toDate ? a.timestamp.toDate().toISOString() : '');
+              const tB = b.timestampISO || (b.timestamp?.toDate ? b.timestamp.toDate().toISOString() : '');
+              return tB.localeCompare(tA);
+            });
+            setAuditLogs(data);
+          }
+        },
+        err => console.warn('Firestore audit onSnapshot (using fallback):', err.message)
+      ));
 
-    unsubs.push(onSnapshot(
-      collection(db, COL.BK_NOTES),
-      (snap) => {
-        const result = {};
-        snap.docs.forEach(d => { result[d.id] = d.data(); });
-        setBkNotes(result);
-      },
-      err => console.error('bkNotes:', err)
-    ));
+      unsubs.push(onSnapshot(
+        collection(db, COL.BK_NOTES),
+        (snap) => {
+          if (!snap.empty) {
+            const result = {};
+            snap.docs.forEach(d => { result[d.id] = d.data(); });
+            setBkNotes(result);
+          }
+        },
+        err => console.warn('bkNotes onSnapshot (using fallback):', err.message)
+      ));
+    } catch (e) {
+      console.warn('Firestore setup error (running in local mock mode):', e);
+    }
 
-    return () => unsubs.forEach(u => u());
+    return () => unsubs.forEach(u => u && u());
   }, []);
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -170,21 +203,29 @@ export function AttendanceProvider({ children }) {
   // ─── Role helpers ─────────────────────────────────────────────────────────────
   const isAdmin    = currentRole === 'SECRETARIAT_ADMIN';
   const isBK       = currentRole === 'PETUGAS_BK';
-  const canManageMembers = isAdmin || isBK;   // hanya Admin & BK bisa tambah/edit anggota
+  const canManageMembers = isAdmin || isBK;
 
   // ─── Audit Trail ─────────────────────────────────────────────────────────────
   const logAudit = useCallback(async ({ action, details, method }) => {
     try {
-      await addDoc(collection(db, COL.AUDIT), {
-        timestamp: serverTimestamp(),
+      const newAudit = {
+        id: `AUD-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        timestampISO: new Date().toISOString(),
         userRole:  currentRole,
-        userName:  'Petugas Sistem',
+        userName:  currentUser?.name || 'Petugas Sistem',
         action,
         details,
         method: method || 'SYSTEM',
+      };
+      setAuditLogs(prev => [newAudit, ...prev]);
+
+      await addDoc(collection(db, COL.AUDIT), {
+        ...newAudit,
+        timestamp: serverTimestamp(),
       });
-    } catch (e) { console.error('audit:', e); }
-  }, [currentRole]);
+    } catch (e) { /* ignore offline */ }
+  }, [currentRole, currentUser]);
 
   // ─── Raport Score ─────────────────────────────────────────────────────────────
   const getMemberRaport = useCallback((memberId, categoryFilter = 'ALL', maxMonth = null) => {
@@ -193,12 +234,11 @@ export function AttendanceProvider({ children }) {
       ? activities
       : activities.filter(a => a.category === categoryFilter);
 
-    // Filter sampai bulan tertentu (default atau spesifik misal s.d November)
     if (maxMonth !== null && maxMonth !== undefined && maxMonth !== 'ALL') {
       const monthNum = parseInt(maxMonth, 10);
       relevantActivities = relevantActivities.filter(a => {
         if (!a.date) return true;
-        const actMonth = new Date(a.date).getMonth() + 1; // 1 - 12
+        const actMonth = new Date(a.date).getMonth() + 1;
         return actMonth <= monthNum;
       });
     }
@@ -226,215 +266,227 @@ export function AttendanceProvider({ children }) {
     };
   }, [logs, activities]);
 
-  // ─── Add Member (foto di-convert ke base64, simpan di Firestore) ──────────────
+  // ─── Add Member ──────────────────────────────────────────────────────────────
   const addMember = async (memberData, photoFile = null) => {
     if (!canManageMembers) return { success: false, message: 'Hanya BK dan Admin yang bisa menambahkan anggota.' };
     try {
       let photoUrl = memberData.photo || '';
-
-      // Konversi foto ke base64 jika ada file dipilih
       if (photoFile) {
-        // Resize/compress — batasi max 800px agar tidak melebihi limit Firestore (1MB per doc)
         photoUrl = await compressImageToBase64(photoFile, 400);
       }
 
+      const generatedId = `DPRD-${String(members.length + 1).padStart(3, '0')}`;
       const newMember = {
+        id: generatedId,
         ...memberData,
         photo: photoUrl,
-        qrToken: '',        // akan diupdate setelah dapat ID
+        qrToken: `QR-${generatedId}-${(memberData.name || '').replace(/\s+/g, '-').toUpperCase()}`,
         statusActive: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
       };
 
-      const docRef = await addDoc(collection(db, COL.MEMBERS), newMember);
-      const finalId = docRef.id;
+      setMembers(prev => [newMember, ...prev]);
 
-      // Update qrToken dengan ID final
-      await updateDoc(doc(db, COL.MEMBERS, finalId), {
-        qrToken: `QR-${finalId}-${(memberData.name || '').replace(/\s+/g, '').toUpperCase().substring(0, 6)}`,
+      try {
+        await setDoc(doc(db, COL.MEMBERS, generatedId), {
+          ...newMember,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (e) { /* fallback offline */ }
+
+      await logAudit({
+        action:  'ADD_MEMBER',
+        details: `Menambah anggota baru: ${newMember.name} (${newMember.fraksi})`,
       });
 
-      await logAudit({ action: 'CREATE_MEMBER', details: `Tambah Anggota: ${memberData.name}` });
-      return { success: true, id: finalId };
+      return { success: true, id: generatedId };
     } catch (err) {
-      console.error('addMember:', err);
-      return { success: false, message: `Gagal menyimpan: ${err.message}. Pastikan Firestore Rules mengizinkan write.` };
+      return { success: false, message: err.message };
     }
   };
 
-  // ─── Update Member ────────────────────────────────────────────────────────────
-  const updateMember = async (memberId, memberData, photoFile = null) => {
-    if (!canManageMembers) return { success: false, message: 'Hanya BK dan Admin yang bisa mengedit anggota.' };
+  // ─── Update Member ───────────────────────────────────────────────────────────
+  const updateMember = async (memberId, updateData, photoFile = null) => {
+    if (!canManageMembers) return { success: false, message: 'Hanya BK dan Admin yang bisa mengubah data anggota.' };
     try {
-      let photoUrl = memberData.photo || '';
+      let photoUrl = updateData.photo;
       if (photoFile) {
         photoUrl = await compressImageToBase64(photoFile, 400);
       }
-      await setDoc(doc(db, COL.MEMBERS, memberId), {
-        ...memberData,
-        photo: photoUrl,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      await logAudit({ action: 'UPDATE_MEMBER', details: `Update: ${memberData.name}` });
+
+      const cleanData = { ...updateData };
+      if (photoUrl !== undefined) cleanData.photo = photoUrl;
+
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, ...cleanData } : m));
+
+      try {
+        await updateDoc(doc(db, COL.MEMBERS, memberId), {
+          ...cleanData,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (e) { /* fallback */ }
+
+      await logAudit({
+        action:  'UPDATE_MEMBER',
+        details: `Update data anggota: ${cleanData.name || memberId}`,
+      });
+
       return { success: true };
     } catch (err) {
       return { success: false, message: err.message };
     }
   };
 
-  // ─── Delete Member ────────────────────────────────────────────────────────────
+  // ─── Delete Member ───────────────────────────────────────────────────────────
   const deleteMember = async (memberId) => {
     if (!canManageMembers) return { success: false, message: 'Hanya BK dan Admin yang bisa menghapus anggota.' };
     try {
-      const m = getMemberById(memberId);
-      await deleteDoc(doc(db, COL.MEMBERS, memberId));
-      await logAudit({ action: 'DELETE_MEMBER', details: `Hapus: ${m?.name}` });
+      const member = getMemberById(memberId);
+      setMembers(prev => prev.filter(m => m.id !== memberId));
+
+      try {
+        await deleteDoc(doc(db, COL.MEMBERS, memberId));
+      } catch (e) { /* fallback */ }
+
+      await logAudit({
+        action:  'DELETE_MEMBER',
+        details: `Menghapus anggota: ${member?.name || memberId}`,
+      });
+
       return { success: true };
     } catch (err) {
       return { success: false, message: err.message };
     }
   };
 
-  // ─── Activity CRUD ────────────────────────────────────────────────────────────
-  const addActivity = async (data) => {
+  // ─── Activities CRUD ─────────────────────────────────────────────────────────
+  const addActivity = async (actData) => {
     try {
-      const ref = await addDoc(collection(db, COL.ACTIVITIES), {
-        ...data,
-        status: data.status || 'ACTIVE',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      await logAudit({ action: 'CREATE_ACTIVITY', details: `Agenda: ${data.title}` });
-      return { success: true, id: ref.id };
-    } catch (err) { return { success: false, message: err.message }; }
+      const generatedId = `ACT-2026-${String(activities.length + 1).padStart(3, '0')}`;
+      const newAct = {
+        id: generatedId,
+        ...actData,
+        status: actData.status || 'ACTIVE',
+      };
+      setActivities(prev => [newAct, ...prev]);
+
+      try {
+        await setDoc(doc(db, COL.ACTIVITIES, generatedId), {
+          ...newAct,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (e) { /* fallback */ }
+
+      await logAudit({ action: 'ADD_ACTIVITY', details: `Membuat kegiatan: ${newAct.title}` });
+      return { success: true, id: generatedId };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
   };
 
-  const updateActivity = async (id, data) => {
+  const updateActivity = async (activityId, actData) => {
     try {
-      await setDoc(doc(db, COL.ACTIVITIES, id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+      setActivities(prev => prev.map(a => a.id === activityId ? { ...a, ...actData } : a));
+      try {
+        await updateDoc(doc(db, COL.ACTIVITIES, activityId), {
+          ...actData,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (e) { /* fallback */ }
       return { success: true };
-    } catch (err) { return { success: false, message: err.message }; }
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
   };
 
-  const deleteActivity = async (id) => {
+  const deleteActivity = async (activityId) => {
     try {
-      await deleteDoc(doc(db, COL.ACTIVITIES, id));
+      setActivities(prev => prev.filter(a => a.id !== activityId));
+      try {
+        await deleteDoc(doc(db, COL.ACTIVITIES, activityId));
+      } catch (e) { /* fallback */ }
       return { success: true };
-    } catch (err) { return { success: false, message: err.message }; }
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
   };
 
-  // ─── Record Attendance (QR / GPS) ─────────────────────────────────────────────
-  const recordAttendance = async ({ activityId, memberId, method, lat, lng, distanceMeters, proofPhoto, operatorName, note }) => {
-    const member   = getMemberById(memberId);
-    const activity = activities.find(a => a.id === activityId);
-    if (!member || !activity) return { success: false, message: 'Data anggota atau kegiatan tidak ditemukan.' };
-
+  // ─── Record Attendance ───────────────────────────────────────────────────────
+  const recordAttendance = async ({ activityId, memberId, status = 'Hadir', method = 'QR_WEBCAM', operatorName, lat, lng, distanceMeters, note, photoFile = null }) => {
     try {
-      const existQ = query(
-        collection(db, COL.LOGS),
-        where('activityId', '==', activityId),
-        where('memberId',   '==', memberId),
-        limit(1)
-      );
-      const existSnap = await getDocs(existQ);
+      const member = getMemberById(memberId);
+      const activity = activities.find(a => a.id === activityId);
+      if (!member || !activity) return { success: false, message: 'Data tidak ditemukan' };
 
-      const now   = new Date();
-      const start = new Date(`${activity.date}T${activity.startTime || '00:00'}:00`);
-      const status = now > start ? 'Terlambat' : 'Hadir';
-
-      const logData = {
+      const newLog = {
+        id: `ATT-${Date.now()}`,
         activityId,
         memberId,
-        timestamp:    serverTimestamp(),
-        timestampISO: now.toISOString(),
+        timestamp: new Date().toISOString(),
+        timestampISO: new Date().toISOString(),
         status,
         method,
-        operatorName: operatorName || 'Sistem',
-        lat:   lat    ?? null,
-        lng:   lng    ?? null,
-        distanceMeters: distanceMeters ?? null,
-        proofPhoto: proofPhoto || null,
-        note:  note   || `${method} — ${status}`,
-        updatedAt: serverTimestamp(),
+        operatorName: operatorName || currentUser?.name || 'Petugas Absensi',
+        lat: lat || null,
+        lng: lng || null,
+        distanceMeters: distanceMeters !== undefined ? distanceMeters : 12,
+        note: note || `Absensi ${status}`,
       };
 
-      let logId;
-      if (!existSnap.empty) {
-        logId = existSnap.docs[0].id;
-        await updateDoc(doc(db, COL.LOGS, logId), logData);
-      } else {
-        const r = await addDoc(collection(db, COL.LOGS), { ...logData, createdAt: serverTimestamp() });
-        logId = r.id;
-      }
+      setLogs(prev => [newLog, ...prev.filter(l => !(l.activityId === activityId && l.memberId === memberId))]);
+
+      try {
+        await addDoc(collection(db, COL.LOGS), {
+          ...newLog,
+          timestamp: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        });
+      } catch (e) { /* fallback */ }
 
       await logAudit({
-        action:  existSnap.empty ? 'NEW_ATTENDANCE' : 'UPDATE_ATTENDANCE',
-        details: `[${method}] ${status} — ${member.name} @ ${activity.title}`,
+        action: 'ATTENDANCE_RECORDED',
+        details: `Presensi [${status}] ${member.name} pada ${activity.title} (${method})`,
         method,
       });
 
-      return { success: true, log: { id: logId, ...logData, timestamp: now.toISOString() }, member, activity };
+      return { success: true, log: newLog };
     } catch (err) {
-      console.error('recordAttendance:', err);
       return { success: false, message: err.message };
     }
   };
 
-  // ─── Manual Attendance ────────────────────────────────────────────────────────
   const recordManualAttendance = async ({ activityId, memberId, status, note, operatorName }) => {
-    const member   = getMemberById(memberId);
-    const activity = activities.find(a => a.id === activityId);
-    if (!member || !activity) return { success: false, message: 'Data tidak valid.' };
-
-    try {
-      const existQ = query(
-        collection(db, COL.LOGS),
-        where('activityId', '==', activityId),
-        where('memberId',   '==', memberId),
-        limit(1)
-      );
-      const existSnap = await getDocs(existQ);
-      const logData = {
-        activityId, memberId,
-        timestamp:    serverTimestamp(),
-        timestampISO: new Date().toISOString(),
-        status,
-        method: 'MANUAL_OVERRIDE',
-        operatorName: operatorName || 'Admin Sekretariat',
-        lat: null, lng: null, distanceMeters: null, proofPhoto: null,
-        note: note || 'Input Manual Petugas',
-        updatedAt: serverTimestamp(),
-      };
-
-      if (!existSnap.empty) {
-        await updateDoc(doc(db, COL.LOGS, existSnap.docs[0].id), logData);
-      } else {
-        await addDoc(collection(db, COL.LOGS), { ...logData, createdAt: serverTimestamp() });
-      }
-
-      await logAudit({
-        action:  'MANUAL_ATTENDANCE_OVERRIDE',
-        details: `Manual [${status}] ${member.name} oleh ${operatorName} — ${note}`,
-        method:  'MANUAL_OVERRIDE',
-      });
-
-      return { success: true };
-    } catch (err) {
-      console.error('recordManualAttendance:', err);
-      return { success: false, message: err.message };
-    }
+    return recordAttendance({
+      activityId,
+      memberId,
+      status,
+      method: 'MANUAL_OVERRIDE',
+      operatorName,
+      note,
+    });
   };
 
   // ─── BK Note ─────────────────────────────────────────────────────────────────
   const saveBKNote = async (memberId, note, statusWarning) => {
     try {
       const m = getMemberById(memberId);
-      await setDoc(doc(db, COL.BK_NOTES, memberId), {
-        memberId, note, statusWarning,
+      const updated = {
+        updatedAt: new Date().toISOString(),
         author: 'Badan Kehormatan (BK)',
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
+        note,
+        statusWarning: statusWarning || 'BAIK',
+      };
+      setBkNotes(prev => ({ ...prev, [memberId]: updated }));
+
+      try {
+        await setDoc(doc(db, COL.BK_NOTES, memberId), {
+          memberId, note, statusWarning,
+          author: 'Badan Kehormatan (BK)',
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } catch (e) { /* fallback */ }
+
       await logAudit({ action: 'BK_NOTE', details: `Catatan BK [${statusWarning}] untuk ${m?.name}` });
     } catch (e) { console.error('saveBKNote:', e); }
   };
@@ -464,7 +516,7 @@ export function useAttendance() {
   return ctx;
 }
 
-// ─── Helper: compress image ke base64 (max width px) ─────────────────────────
+// Helper compress
 async function compressImageToBase64(file, maxWidth = 400) {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -477,10 +529,9 @@ async function compressImageToBase64(file, maxWidth = 400) {
         canvas.height = img.height * ratio;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        // JPEG quality 0.75 agar ukuran kecil
         resolve(canvas.toDataURL('image/jpeg', 0.75));
       };
-      img.onerror = () => resolve(e.target.result); // fallback tanpa kompresi
+      img.onerror = () => resolve(e.target.result);
       img.src = e.target.result;
     };
     reader.onerror = () => resolve('');

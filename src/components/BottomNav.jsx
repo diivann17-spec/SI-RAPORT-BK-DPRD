@@ -34,15 +34,14 @@ export default function BottomNav({ activeTab, setActiveTab, onOpenMenu }) {
   return (
     <nav className="no-print fixed bottom-0 inset-x-0 z-40 md:hidden bg-slate-900/95 backdrop-blur-md border-t border-slate-800 text-slate-400 px-3 py-1.5 shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
       <div className="grid grid-cols-4 items-center justify-items-center max-w-md mx-auto">
-        
+
         {/* 1. Beranda */}
         <button
           onClick={() => setActiveTab(homeTab)}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl w-full transition-all ${
-            isHomeActive
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl w-full transition-all ${isHomeActive
               ? 'text-emerald-400 font-bold scale-105'
               : 'text-slate-400 hover:text-slate-200 active:scale-95'
-          }`}
+            }`}
         >
           <div className={`p-1 rounded-lg ${isHomeActive ? 'bg-emerald-500/10' : ''}`}>
             <Home className="w-5 h-5" />
@@ -53,11 +52,10 @@ export default function BottomNav({ activeTab, setActiveTab, onOpenMenu }) {
         {/* 2. Absensi */}
         <button
           onClick={() => setActiveTab(attendanceTab)}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl w-full transition-all ${
-            isAttendanceActive
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl w-full transition-all ${isAttendanceActive
               ? 'text-cyan-400 font-bold scale-105'
               : 'text-slate-400 hover:text-slate-200 active:scale-95'
-          }`}
+            }`}
         >
           <div className={`p-1 rounded-lg ${isAttendanceActive ? 'bg-cyan-500/10' : ''}`}>
             {currentRole === 'ANGGOTA_DPRD' ? <Smartphone className="w-5 h-5" /> : <QrCode className="w-5 h-5" />}
@@ -68,11 +66,10 @@ export default function BottomNav({ activeTab, setActiveTab, onOpenMenu }) {
         {/* 3. Raport */}
         <button
           onClick={() => setActiveTab('raport')}
-          className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-xl w-full transition-all ${
-            isRaportActive
+          className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-xl w-full transition-all ${isRaportActive
               ? 'text-emerald-400 font-bold scale-105'
               : 'text-slate-400 hover:text-slate-200 active:scale-95'
-          }`}
+            }`}
         >
           <div className={`p-1 rounded-lg ${isRaportActive ? 'bg-emerald-500/10' : ''}`}>
             <FileSpreadsheet className="w-5 h-5" />

@@ -95,7 +95,7 @@ export default function Sidebar({ activeTab, setActiveTab }) {
   return (
     <aside className="no-print hidden md:block w-full md:w-64 bg-slate-900 text-slate-300 border-r border-slate-800 shrink-0">
       <div className="p-4">
-        
+
         {/* Role Identity Tag */}
         <div className="mb-6 p-3 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center space-x-3">
           <div className="w-9 h-9 rounded-lg bg-emerald-950 border border-emerald-700/60 flex items-center justify-center text-emerald-400 font-bold text-sm">
@@ -121,11 +121,10 @@ export default function Sidebar({ activeTab, setActiveTab }) {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${
-                  isActive
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${isActive
                     ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-900/30'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                }`}
+                  }`}
               >
                 <div className="flex items-center space-x-3">
                   <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />

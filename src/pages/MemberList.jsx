@@ -1,83 +1,144 @@
 import React, { useState, useRef } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
 import {
-  Users, Plus, Search, QrCode, Edit2, Trash2, X,
-  Loader2, CheckCircle, AlertCircle, Camera, Upload, Lock
+  Users,
+  Search,
+  Plus,
+  Edit2,
+  Trash2,
+  X,
+  Camera,
+  Upload,
+  Loader2,
+  Lock,
+  QrCode
 } from 'lucide-react';
-
-const EMPTY_FORM = {
-  name: '', nip: '',
-  fraksi: 'Fraksi Golkar',
-  komisi: 'Komisi I (Hukum & Pemerintahan)',
-  jabatan: 'Anggota DPRD',
-  phone: '', email: '', photo: '',
-};
+import { compressImage } from '../utils/geoUtils';
 
 const FRAKSI_LIST = [
-  'Fraksi Golkar','Fraksi PDI Perjuangan','Fraksi Gerindra',
-  'Fraksi PKB','Fraksi PKS','Fraksi Demokrat','Fraksi NasDem',
-  'Fraksi PPP','Fraksi Hanura','Fraksi PAN',
+  'Fraksi PDI Perjuangan',
+  'Fraksi PKB',
+  'Fraksi Gerindra',
+  'Fraksi Golkar',
+  'Fraksi PKS',
+  'Fraksi NasDem',
+  'Fraksi Demokrat',
+  'Fraksi PAN',
 ];
+
 const KOMISI_LIST = [
   'Komisi I (Hukum & Pemerintahan)',
-  'Komisi II (Pembangunan & Infrastruktur)',
-  'Komisi III (Keuangan & Asset)',
-  'Komisi IV (Kesejahteraan Rakyat)',
-];
-const JABATAN_LIST = [
-  'Ketua DPRD','Wakil Ketua DPRD','Ketua Komisi',
-  'Wakil Ketua Komisi','Sekretaris Komisi','Anggota DPRD',
+  'Komisi II (Perekonomian & Keuangan)',
+  'Komisi III (Pembangunan & Infrastruktur)',
+  'Komisi IV (Kesejahteraan Rakyat & Pendidikan)',
+  'Badan Kehormatan (BK)',
+  'Badan Anggaran (Banggar)',
+  'Badan Musyawarah (Banmus)',
+  'Badan Pembentukan Perda (Bapemperda)',
 ];
 
-export default function MemberList() {
+const EMPTY_FORM = {
+  name: '',
+  nip: '',
+  fraksi: 'Fraksi PDI Perjuangan',
+  komisi: 'Komisi I (Hukum & Pemerintahan)',
+  jabatan: 'Anggota DPRD',
+  phone: '',
+  email: '',
+  photo: '',
+  statusActive: true,
+};
+
+export default function MemberList({ onNavigate }) {
   const {
-    members, addMember, updateMember, deleteMember,
-    setActiveMemberId, loading,
-    canManageMembers, currentRole,
+    members,
+    addMember,
+    updateMember,
+    deleteMember,
+    setActiveMemberId,
+    currentRole,
+    isAdmin,
+    isBK,
+    loading,
   } = useAttendance();
 
-  const [searchQuery,  setSearchQuery]  = useState('');
+  // Hanya Admin Sekretariat dan Petugas BK yang bisa tambah/edit/hapus
+  const canManageMembers = isAdmin || isBK;
+
+  const [searchQuery, setSearchQuery] = useState('');
   const [filterFraksi, setFilterFraksi] = useState('ALL');
-  const [isFormOpen,   setIsFormOpen]   = useState(false);
-  const [editMember,   setEditMember]   = useState(null);
-  const [formData,     setFormData]     = useState(EMPTY_FORM);
-  const [photoFile,    setPhotoFile]    = useState(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editMember, setEditMember] = useState(null);
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState('');
-  const [isSaving,     setIsSaving]     = useState(false);
-  const [deletingId,   setDeletingId]   = useState(null);
-  const [saveMsg,      setSaveMsg]      = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
   const fileInputRef = useRef(null);
 
   const openAdd = () => {
     if (!canManageMembers) return;
-    setFormData(EMPTY_FORM); setEditMember(null);
-    setPhotoFile(null); setPhotoPreview(''); setSaveMsg('');
+    setEditMember(null);
+    setFormData(EMPTY_FORM);
+    setPhotoFile(null);
+    setPhotoPreview('');
+    setSaveMsg('');
     setIsFormOpen(true);
-  };
-  const openEdit = (m) => {
-    if (!canManageMembers) return;
-    setFormData({ ...m }); setEditMember(m);
-    setPhotoFile(null); setPhotoPreview(m.photo || ''); setSaveMsg('');
-    setIsFormOpen(true);
-  };
-  const closeModal = () => {
-    setIsFormOpen(false); setEditMember(null);
-    setPhotoFile(null); setPhotoPreview(''); setSaveMsg('');
   };
 
-  const handlePhotoChange = (e) => {
-    const file = e.target.files?.[0];
+  const openEdit = (member) => {
+    if (!canManageMembers) return;
+    setEditMember(member);
+    setFormData({
+      name: member.name || '',
+      nip: member.nip || '',
+      fraksi: member.fraksi || FRAKSI_LIST[0],
+      komisi: member.komisi || KOMISI_LIST[0],
+      jabatan: member.jabatan || 'Anggota DPRD',
+      phone: member.phone || '',
+      email: member.email || '',
+      photo: member.photo || '',
+      statusActive: member.statusActive !== false,
+    });
+    setPhotoFile(null);
+    setPhotoPreview(member.photo || '');
+    setSaveMsg('');
+    setIsFormOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsFormOpen(false);
+    setEditMember(null);
+    setFormData(EMPTY_FORM);
+    setPhotoFile(null);
+    setPhotoPreview('');
+    setSaveMsg('');
+  };
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { alert('Ukuran foto max 10MB'); return; }
-    setPhotoFile(file);
-    const reader = new FileReader();
-    reader.onload = (ev) => setPhotoPreview(ev.target?.result || '');
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImage(file, 600, 0.85);
+      setPhotoFile(compressed);
+      const previewUrl = URL.createObjectURL(compressed);
+      setPhotoPreview(previewUrl);
+    } catch {
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSaveMsg(''); setIsSaving(true);
+    if (!canManageMembers) return;
+    if (!formData.name.trim()) {
+      setSaveMsg('Nama anggota wajib diisi.');
+      return;
+    }
+    setSaveMsg('');
+    setIsSaving(true);
     const result = editMember
       ? await updateMember(editMember.id, formData, photoFile)
       : await addMember(formData, photoFile);
@@ -86,7 +147,7 @@ export default function MemberList() {
       setSaveMsg('success');
       setTimeout(closeModal, 1500);
     } else {
-      setSaveMsg(result?.message || 'Gagal menyimpan. Periksa Firestore Rules di Firebase Console.');
+      setSaveMsg(result?.message || 'Gagal menyimpan data anggota.');
     }
   };
 
@@ -96,6 +157,14 @@ export default function MemberList() {
     setDeletingId(id);
     await deleteMember(id);
     setDeletingId(null);
+  };
+
+  // Navigasi ke Halaman Kartu Anggota
+  const handleViewCard = (memberId) => {
+    setActiveMemberId(memberId);
+    if (onNavigate) {
+      onNavigate('member_qr');
+    }
   };
 
   const filtered = members.filter(m => {
@@ -123,7 +192,7 @@ export default function MemberList() {
           <h1 className="text-lg font-bold text-slate-900 dark:text-white">Master Data Anggota DPRD</h1>
           <p className="text-xs text-slate-500 mt-0.5">
             {canManageMembers
-              ? 'Kelola profil, foto, fraksi, komisi, dan QR Code anggota.'
+              ? 'Kelola profil, foto, fraksi, komisi, dan cetak Kartu ID Anggota.'
               : <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400"><Lock className="w-3 h-3" />Mode {roleLabel} — hanya dapat melihat data anggota</span>
             }
           </p>
@@ -175,12 +244,12 @@ export default function MemberList() {
       {/* Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map(m => (
-          <div key={m.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+          <div key={m.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col justify-between">
             <div className="p-4 flex items-start gap-3">
               <div className="shrink-0">
                 {m.photo
-                  ? <img src={m.photo} alt={m.name} className="w-16 h-20 rounded-xl object-cover border-2 border-slate-200 dark:border-slate-700" />
-                  : <div className="w-16 h-20 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-2xl font-black text-white">{m.name?.charAt(0)}</div>
+                  ? <img src={m.photo} alt={m.name} className="w-16 h-20 rounded-xl object-cover border-2 border-slate-200 dark:border-slate-700 shadow-sm" />
+                  : <div className="w-16 h-20 rounded-xl bg-gradient-to-br from-blue-700 to-indigo-800 flex items-center justify-center text-2xl font-black text-white">{m.name?.charAt(0)}</div>
                 }
               </div>
               <div className="flex-1 min-w-0 space-y-1">
@@ -192,9 +261,12 @@ export default function MemberList() {
               </div>
             </div>
             <div className="px-4 pb-4 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3">
-              <button onClick={() => setActiveMemberId(m.id)}
-                className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1 hover:underline">
-                <QrCode className="w-3.5 h-3.5" /> Lihat Kartu QR
+              <button
+                onClick={() => handleViewCard(m.id)}
+                className="px-3 py-1.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition active:scale-95"
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Buka / Cetak Kartu</span>
               </button>
               {/* Edit/Hapus hanya untuk Admin & BK */}
               {canManageMembers && (
@@ -217,7 +289,7 @@ export default function MemberList() {
         ))}
       </div>
 
-      {/* Modal Tambah / Edit — hanya untuk Admin & BK */}
+      {/* Modal Tambah / Edit */}
       {isFormOpen && canManageMembers && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full shadow-2xl text-white max-h-[92vh] overflow-y-auto">
@@ -259,101 +331,93 @@ export default function MemberList() {
                 </div>
               </div>
 
-              {/* Nama */}
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Nama Lengkap & Gelar *</label>
-                <input type="text" required value={formData.name}
-                  onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
-                  placeholder="H. Budi Santoso, S.H., M.H."
-                  className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 placeholder-slate-600" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+              {/* Nama & NIP */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">NIP / No. Anggota</label>
+                  <label className="block text-slate-400 mb-1 font-semibold">Nama Lengkap & Gelar *</label>
+                  <input type="text" required value={formData.name}
+                    onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
+                    placeholder="Contoh: H. Ahmad Fauzi, S.H."
+                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white font-semibold" />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">NIP / Nomor Induk</label>
                   <input type="text" value={formData.nip}
                     onChange={e => setFormData(p => ({ ...p, nip: e.target.value }))}
-                    placeholder="DPRD-001"
-                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 font-mono placeholder-slate-600" />
+                    placeholder="Contoh: 19750821 200501 2 004"
+                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono" />
+                </div>
+              </div>
+
+              {/* Fraksi & Komisi */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Fraksi</label>
+                  <select value={formData.fraksi}
+                    onChange={e => setFormData(p => ({ ...p, fraksi: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white">
+                    {FRAKSI_LIST.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Jabatan *</label>
-                  <select value={formData.jabatan} onChange={e => setFormData(p => ({ ...p, jabatan: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500">
-                    {JABATAN_LIST.map(j => <option key={j}>{j}</option>)}
+                  <label className="block text-slate-400 mb-1 font-semibold">Komisi / AKD</label>
+                  <select value={formData.komisi}
+                    onChange={e => setFormData(p => ({ ...p, komisi: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white">
+                    {KOMISI_LIST.map(k => <option key={k} value={k}>{k}</option>)}
                   </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Fraksi *</label>
-                  <select value={formData.fraksi} onChange={e => setFormData(p => ({ ...p, fraksi: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500">
-                    {FRAKSI_LIST.map(f => <option key={f}>{f}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Komisi *</label>
-                  <select value={formData.komisi} onChange={e => setFormData(p => ({ ...p, komisi: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500">
-                    {KOMISI_LIST.map(k => <option key={k}>{k}</option>)}
-                  </select>
-                </div>
+              {/* Jabatan */}
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Jabatan Kedewanan</label>
+                <input type="text" value={formData.jabatan}
+                  onChange={e => setFormData(p => ({ ...p, jabatan: e.target.value }))}
+                  placeholder="Contoh: Anggota Komisi I / Wakil Ketua BK"
+                  className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white" />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Kontak */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">No. HP</label>
+                  <label className="block text-slate-400 mb-1 font-semibold">No. HP / WhatsApp</label>
                   <input type="tel" value={formData.phone}
                     onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))}
-                    placeholder="08xxxxxxxxxx"
-                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 placeholder-slate-600" />
+                    placeholder="0812-xxxx-xxxx"
+                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white" />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Email</label>
+                  <label className="block text-slate-400 mb-1 font-semibold">Email Dinas</label>
                   <input type="email" value={formData.email}
                     onChange={e => setFormData(p => ({ ...p, email: e.target.value }))}
-                    placeholder="nama@dprd.go.id"
-                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 placeholder-slate-600" />
+                    placeholder="nama@dprd.cirebonkab.go.id"
+                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white" />
                 </div>
               </div>
 
-              {/* Feedback */}
-              {saveMsg === 'success' && (
-                <div className="p-2.5 rounded-lg bg-emerald-950/80 border border-emerald-800 text-emerald-300 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 shrink-0" />
-                  <span>{editMember ? 'Data berhasil diperbarui!' : 'Anggota berhasil ditambahkan!'}</span>
-                </div>
-              )}
-              {saveMsg && saveMsg !== 'success' && (
-                <div className="p-2.5 rounded-lg bg-rose-950/80 border border-rose-800 text-rose-300 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold">Gagal menyimpan:</p>
-                    <p className="text-[11px] opacity-80 mt-0.5">{saveMsg}</p>
-                    <p className="text-[11px] opacity-60 mt-1">Pastikan Firestore Rules: <code>allow read, write: if true;</code></p>
-                  </div>
+              {saveMsg && (
+                <div className={`p-3 rounded-xl text-xs font-semibold ${saveMsg === 'success' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-rose-950 text-rose-300 border border-rose-800'}`}>
+                  {saveMsg === 'success' ? '✓ Data anggota berhasil disimpan!' : saveMsg}
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-1">
+              <div className="flex gap-3 pt-2">
                 <button type="button" onClick={closeModal}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl font-semibold text-slate-300">
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition">
                   Batal
                 </button>
                 <button type="submit" disabled={isSaving}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 rounded-xl font-bold flex items-center gap-2">
-                  {isSaving
-                    ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Menyimpan...</span></>
-                    : <span>{editMember ? 'Update Data' : 'Simpan Anggota Baru'}</span>
-                  }
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition disabled:opacity-50">
+                  {isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Menyimpan...</> : 'Simpan Data'}
                 </button>
               </div>
+
             </form>
           </div>
         </div>
       )}
+
     </div>
   );
 }

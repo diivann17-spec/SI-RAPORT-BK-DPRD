@@ -65,7 +65,7 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl text-slate-100 relative max-h-[92vh] overflow-y-auto">
-        
+
         {/* Top Control Bar (Hidden on Print) */}
         <div className="no-print flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-slate-800 mb-6 gap-3">
           <div className="flex items-center space-x-3">
@@ -113,7 +113,7 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
 
         {/* PRINTABLE E-RAPORT PAPER DOCUMENT CONTAINER (F4 / FOLIO READY) */}
         <div className="print-page bg-white text-slate-900 p-6 sm:p-8 rounded-xl shadow-lg border border-slate-200 text-xs font-sans space-y-4">
-          
+
           {/* Official DPRD Header Kop Surat */}
           <div className="border-b-4 border-double border-slate-800 pb-3 flex items-center justify-between">
             <div className="flex items-center space-x-3.5">
@@ -144,7 +144,7 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
 
           {/* Member Profile & Category Badge Overview */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-5 rounded-xl border border-slate-200">
-            
+
             {/* Photo & Member Data */}
             <div className="md:col-span-2 flex items-start space-x-4">
               <img

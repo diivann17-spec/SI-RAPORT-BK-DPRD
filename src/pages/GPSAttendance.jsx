@@ -34,7 +34,7 @@ export default function GPSAttendance() {
 
   // GPS state
   const [userLocation, setUserLocation] = useState(null);
-  const [geoError, setGeoError]   = useState('');
+  const [geoError, setGeoError] = useState('');
   const [isLocating, setIsLocating] = useState(false);
 
   // Foto bukti
@@ -87,8 +87,8 @@ export default function GPSAttendance() {
         const msg = err.code === 1
           ? 'Izin akses GPS belum aktif di browser.'
           : err.code === 2
-          ? 'Posisi GPS perangkat belum terdeteksi.'
-          : 'Pencarian sinyal GPS timeout.';
+            ? 'Posisi GPS perangkat belum terdeteksi.'
+            : 'Pencarian sinyal GPS timeout.';
         setGeoError(`${msg} (Koordinat simulasi siap digunakan).`);
         setIsLocating(false);
         // Fallback langsung ke koordinat yang berada dalam radius agenda
@@ -109,12 +109,12 @@ export default function GPSAttendance() {
   // Hitung geofence dengan casting Number yang aman
   const radiusCheck = (userLocation && selectedActivity)
     ? isWithinRadius(
-        Number(userLocation.lat),
-        Number(userLocation.lng),
-        Number(selectedActivity.targetLat) || 0,
-        Number(selectedActivity.targetLng) || 0,
-        Number(selectedActivity.radiusMeters) || 150
-      )
+      Number(userLocation.lat),
+      Number(userLocation.lng),
+      Number(selectedActivity.targetLat) || 0,
+      Number(selectedActivity.targetLng) || 0,
+      Number(selectedActivity.radiusMeters) || 150
+    )
     : { isWithin: true, distance: 0, radiusMeters: Number(selectedActivity?.radiusMeters) || 150 };
 
   // Handle pilih foto bukti
@@ -158,7 +158,7 @@ export default function GPSAttendance() {
 
     if (result.success) {
       setSubmitSuccess(result);
-      try { confetti({ particleCount: 70, spread: 65, origin: { y: 0.5 } }); } catch (e) {}
+      try { confetti({ particleCount: 70, spread: 65, origin: { y: 0.5 } }); } catch (e) { }
     } else {
       setSubmitError(result.message || 'Gagal menyimpan absensi GPS ke Firestore.');
     }
@@ -323,11 +323,10 @@ export default function GPSAttendance() {
 
         {/* Status Geofence */}
         {userLocation && (
-          <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs ${
-            radiusCheck.isWithin
+          <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs ${radiusCheck.isWithin
               ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
               : 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-300'
-          }`}>
+            }`}>
             <div className="flex items-center gap-3">
               {radiusCheck.isWithin
                 ? <ShieldCheck className="w-6 h-6 text-emerald-500 shrink-0" />
@@ -450,11 +449,10 @@ export default function GPSAttendance() {
         <button
           onClick={handleSubmitGPS}
           disabled={isSubmitting || !activeMemberId || !selectedActivityId}
-          className={`w-full py-4 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2.5 transition-all ${
-            !isSubmitting && activeMemberId && selectedActivityId
+          className={`w-full py-4 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2.5 transition-all ${!isSubmitting && activeMemberId && selectedActivityId
               ? 'bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white hover:scale-[1.01] active:scale-[0.99] cursor-pointer'
               : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
-          }`}
+            }`}
         >
           {isSubmitting
             ? <><Loader2 className="w-5 h-5 animate-spin" /><span>Menyimpan Absensi ke Firestore...</span></>

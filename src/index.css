@@ -4,15 +4,17 @@
   :root {
     --bg-main: #f8fafc;
     --text-primary: #0f172a;
-    --brand-primary: #047857; /* Deep Emerald */
-    --brand-accent: #b45309; /* Brass / Gold */
+    --brand-primary: #047857;
+    --brand-accent: #b45309;
   }
 
   body {
-    background-color: #f1f5f9;
-    color: #0f172a;
+    background-color: #0f172a;
+    color: #f8fafc;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     -webkit-font-smoothing: antialiased;
+    margin: 0;
+    padding: 0;
   }
 }
 
@@ -115,35 +117,82 @@
   box-shadow: inset 25px 0 50px rgba(0, 0, 0, 0.95), -20px 0 45px rgba(0, 0, 0, 0.9);
 }
 
-/* Print CSS formatting for e-Raport PDF output (F4 / Folio: 215mm x 330mm) */
-@page {
-  size: 215mm 330mm portrait; /* F4 / Folio standard paper */
-  margin: 12mm 15mm 12mm 15mm;
-}
-
+/* ═══════════════════════════════════════════════════════════════
+   PRECISE PRINT CSS FOR ID CARDS & E-RAPORT (A4 / F4 / PVC)
+   ═══════════════════════════════════════════════════════════════ */
 @media print {
   html, body {
     background: #ffffff !important;
     color: #000000 !important;
-    font-size: 11px !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
+
   .no-print {
     display: none !important;
   }
+
   .print-only {
     display: block !important;
   }
-  .print-page {
-    width: 100% !important;
-    max-width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    box-shadow: none !important;
-    border: none !important;
-    page-break-inside: auto;
+
+  /* Specific ID Card Print Sheet (2 cards side by side neatly on A4) */
+  .id-card-print-sheet {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    gap: 12mm !important;
+    padding: 10mm 0 !important;
+    margin: 0 auto !important;
+    background: transparent !important;
   }
+
+  /* ID Card Exact Physical Dimension (CR80 standard 86mm x 54mm) */
+  .id-card-box-horizontal {
+    width: 86mm !important;
+    height: 54mm !important;
+    max-width: 86mm !important;
+    max-height: 54mm !important;
+    min-width: 86mm !important;
+    min-height: 54mm !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    border-radius: 4mm !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    overflow: hidden !important;
+    box-shadow: none !important;
+  }
+
+  .id-card-box-vertical {
+    width: 54mm !important;
+    height: 86mm !important;
+    max-width: 54mm !important;
+    max-height: 86mm !important;
+    min-width: 54mm !important;
+    min-height: 86mm !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    border-radius: 4mm !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    overflow: hidden !important;
+    box-shadow: none !important;
+  }
+
+  .print-page {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   /* Keep tables neat and prevent awkward page cuts */
   table {
     page-break-inside: auto;
