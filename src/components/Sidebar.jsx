@@ -93,7 +93,7 @@ export default function Sidebar({ activeTab, setActiveTab }) {
   const filteredMenu = menuItems.filter(item => item.roles.includes(currentRole));
 
   return (
-    <aside className="no-print w-full md:w-64 bg-slate-900 text-slate-300 border-r border-slate-800 shrink-0">
+    <aside className="no-print hidden md:block w-full md:w-64 bg-slate-900 text-slate-300 border-r border-slate-800 shrink-0">
       <div className="p-4">
         
         {/* Role Identity Tag */}

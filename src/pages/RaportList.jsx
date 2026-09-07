@@ -10,7 +10,8 @@ import {
   AlertOctagon,
   FileText,
   Printer,
-  ShieldAlert
+  ShieldAlert,
+  ChevronRight
 } from 'lucide-react';
 
 export default function RaportList() {
@@ -56,38 +57,60 @@ export default function RaportList() {
   const fraksiList = Array.from(new Set(members.map(m => m.fraksi)));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       
       {/* Header Banner */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-amber-950 via-slate-900 to-slate-900 border border-slate-800 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="p-4 sm:p-6 rounded-2xl bg-gradient-to-r from-amber-950 via-slate-900 to-slate-900 border border-slate-800 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
-            <span className="bg-amber-500/20 text-amber-300 text-xs font-extrabold px-2.5 py-0.5 rounded border border-amber-500/30 uppercase tracking-wide">
+            <span className="bg-amber-500/20 text-amber-300 text-[10px] sm:text-xs font-extrabold px-2.5 py-0.5 rounded border border-amber-500/30 uppercase tracking-wide">
               Badan Kehormatan (BK) & Pimpinan DPRD
             </span>
           </div>
-          <h1 className="text-xl font-extrabold text-white">Raport Digital Kedisiplinan Kehadiran</h1>
+          <h1 className="text-lg sm:text-xl font-extrabold text-white">Raport Kedisiplinan Kehadiran</h1>
           <p className="text-xs text-slate-300">
-            Hasil pengolahan evaluasi kehadiran anggota DPRD dengan indikator kategori warna Hijau (81-100%), Kuning (51-80%), & Merah (0-50%).
+            Hasil pengolahan evaluasi kehadiran anggota DPRD dengan indikator kategori warna Hijau, Kuning, & Merah.
           </p>
         </div>
 
         <button
           onClick={() => window.print()}
-          className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs flex items-center gap-2 border border-slate-700 transition shrink-0"
+          className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition shrink-0"
         >
           <Printer className="w-4 h-4 text-emerald-400" />
-          <span>Cetak Rekap Raport Seluruh Anggota</span>
+          <span>Cetak Rekap Raport</span>
         </button>
       </div>
 
+      {/* Mobile-Friendly Category Tabs (Sesuai Mockup Screen 6) */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        {[
+          { key: 'ALL', label: 'Semua' },
+          { key: 'GREEN', label: 'Hijau' },
+          { key: 'YELLOW', label: 'Kuning' },
+          { key: 'RED', label: 'Merah' }
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setSelectedColor(tab.key)}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap shrink-0 ${
+              selectedColor === tab.key
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* Filter & Search Bar */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 sm:space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
           
           {/* Search Input */}
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 sm:top-3" />
             <input
               type="text"
               placeholder="Cari nama, fraksi, komisi..."
@@ -106,26 +129,11 @@ export default function RaportList() {
               className="w-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-emerald-600 dark:text-emerald-400"
             >
               <option value="11">s.d November 2026 (Jan - Nov)</option>
-              <option value="12">s.d Desember 2026 (1 Tahun Penuh)</option>
+              <option value="12">s.d Desember 2026 (1 Tahun)</option>
               <option value="10">s.d Oktober 2026</option>
               <option value="9">s.d September 2026</option>
               <option value="6">s.d Juni 2026 (Semester 1)</option>
-              <option value="ALL">Semua Agenda Rapat</option>
-            </select>
-          </div>
-
-          {/* Color Category Filter */}
-          <div className="flex items-center space-x-2">
-            <Filter className="w-4 h-4 text-emerald-600 shrink-0" />
-            <select
-              value={selectedColor}
-              onChange={(e) => setSelectedColor(e.target.value)}
-              className="w-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700 font-semibold"
-            >
-              <option value="ALL">Semua Indikator Warna</option>
-              <option value="GREEN">🟢 Hijau (81 - 100% / Baik)</option>
-              <option value="YELLOW">🟡 Kuning (51 - 80% / Cukup)</option>
-              <option value="RED">🔴 Merah (0 - 50% / Evaluasi BK)</option>
+              <option value="ALL">Semua Agenda</option>
             </select>
           </div>
 
@@ -146,8 +154,64 @@ export default function RaportList() {
         </div>
       </div>
 
-      {/* Raport Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
+      {/* ── MOBILE CARD LIST VIEW (Sesuai Mockup Mobile Screen 6) ── */}
+      <div className="md:hidden space-y-2.5">
+        {memberRaports.length === 0 ? (
+          <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs text-slate-400">
+            Tidak ada data anggota sesuai filter.
+          </div>
+        ) : (
+          memberRaports.map(({ member, raport, bkNote }) => {
+            const isGreen = raport.categoryInfo.key === 'GREEN';
+            const isYellow = raport.categoryInfo.key === 'YELLOW';
+            const statusTag = isGreen ? 'Baik' : isYellow ? 'Cukup' : 'Kurang';
+            const tagColor = isGreen
+              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+              : isYellow
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+              : 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+
+            return (
+              <div
+                key={member.id}
+                onClick={() => setActiveModalMemberId(member.id)}
+                className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 flex items-center justify-between shadow-md active:scale-[0.99] transition cursor-pointer gap-3"
+              >
+                <div className="flex items-center space-x-3 min-w-0">
+                  {member.photo ? (
+                    <img
+                      src={member.photo}
+                      alt=""
+                      className="w-11 h-11 rounded-full object-cover border-2 border-slate-700 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-11 h-11 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center text-sm font-black text-slate-200 shrink-0">
+                      {member.name?.charAt(0)}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-xs text-white truncate">{member.name}</h4>
+                    <p className="text-[10px] text-slate-400 truncate">{member.jabatan} • {member.komisi}</p>
+                    <p className="text-[11px] font-black text-slate-200 font-mono mt-0.5">
+                      {raport.percentage}% Kehadiran
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2 shrink-0">
+                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${tagColor}`}>
+                    {statusTag}
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-500" />
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* ── DESKTOP TABLE VIEW (Hidden on Mobile) ── */}
+      <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
         
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-sm text-slate-900 dark:text-white">

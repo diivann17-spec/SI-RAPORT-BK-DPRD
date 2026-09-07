@@ -7,7 +7,9 @@ import {
   Download,
   Printer,
   ShieldCheck,
-  QrCode
+  QrCode,
+  Info,
+  CheckCircle2
 } from 'lucide-react';
 
 export default function MemberQRCard() {
@@ -31,19 +33,19 @@ export default function MemberQRCard() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-xl mx-auto space-y-4 sm:space-y-6">
       
       {/* Selector Box: Only visible for Admin, BK, or Petugas Scan */}
       {isOperatorOrAdmin ? (
         <div className="no-print bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Pilih Kartu Anggota DPRD:</span>
-            <p className="text-[11px] text-slate-400">Mode Admin / BK: Anda dapat memilih dan mencetak kartu anggota manapun.</p>
+            <p className="text-[11px] text-slate-400">Pilih anggota untuk menampilkan atau mencetak kartu.</p>
           </div>
           <select
             value={activeMemberId}
             onChange={(e) => setActiveMemberId(e.target.value)}
-            className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 font-bold text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700"
+            className="w-full sm:w-auto bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 font-bold text-xs p-2.5 rounded-xl border border-slate-300 dark:border-slate-700"
           >
             {members.map(m => (
               <option key={m.id} value={m.id}>
@@ -55,103 +57,74 @@ export default function MemberQRCard() {
       ) : (
         <div className="no-print bg-emerald-950/40 p-3.5 rounded-2xl border border-emerald-800/60 shadow-sm text-xs text-emerald-300 flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>Kartu Identitas Digital Resmi Anda (Gunakan QR Code ini saat presensi rapat dengan laptop operator).</span>
+          <span>Kartu Identitas Digital Resmi Anda (Tunjukkan QR Code saat presensi).</span>
         </div>
       )}
 
-      {/* Official Digital ID Card Container */}
+      {/* ── MOBILE-OPTIMIZED DIGITAL CARD (Sesuai Mockup Mobile Screen 5) ── */}
       <div
         ref={cardRef}
-        className="print-page bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950 text-white rounded-3xl p-6 shadow-2xl border-2 border-emerald-500/40 relative overflow-hidden space-y-6"
+        className="print-page bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950 text-white rounded-3xl p-5 sm:p-6 shadow-2xl border-2 border-emerald-500/40 relative overflow-hidden space-y-5"
       >
-        {/* Background Decorative Seals */}
-        <div className="absolute -right-10 -bottom-10 w-60 h-60 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none"></div>
+        {/* Decorative Ambient Glow */}
+        <div className="absolute -right-10 -bottom-10 w-48 h-48 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none"></div>
 
-        {/* Card Header Kop */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4 relative z-10">
-          <div className="flex items-center space-x-3">
-            <div className="w-11 h-11 flex items-center justify-center">
-              <img
-                src={dprdLogo}
-                alt="Logo DPRD"
-                className="w-11 h-11 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]"
-              />
-            </div>
-            <div>
-              <h3 className="font-extrabold text-sm tracking-wider text-emerald-400 uppercase">DEWAN PERWAKILAN RAKYAT DAERAH</h3>
-              <p className="text-[10px] text-slate-300 tracking-wide">KARTU IDENTITAS DIGITAL ANGGOTA DPRD & QR PRESENSI</p>
-            </div>
-          </div>
-          <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-extrabold border border-amber-500/40">
-            OFFICIAL ID
-          </span>
+        {/* Card Title Kop */}
+        <div className="text-center space-y-1 relative z-10 border-b border-slate-800 pb-3">
+          <h3 className="font-extrabold text-sm sm:text-base text-emerald-400 tracking-wide uppercase">
+            Kartu QR Digital Anggota
+          </h3>
+          <p className="text-[10px] text-slate-400">
+            DPRD Kabupaten Cirebon • Masa Jabatan 2024–2029
+          </p>
         </div>
 
-        {/* Main Card Body */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 items-center relative z-10">
-          
-          {/* Member Photo */}
-          <div className="flex flex-col items-center text-center space-y-2">
-            <img
-              src={member.photo}
-              alt={member.name}
-              className="w-28 h-36 rounded-2xl object-cover border-2 border-emerald-400 shadow-xl"
+        {/* Big Clean White QR Container (Centerpiece on Mobile) */}
+        <div className="bg-white rounded-3xl p-6 text-slate-900 text-center shadow-2xl max-w-xs mx-auto space-y-4 relative z-10">
+          <div className="flex justify-center p-2">
+            <QRCodeSVG
+              value={member.qrToken || `QR-${member.id}`}
+              size={180}
+              bgColor={"#ffffff"}
+              fgColor={"#0f172a"}
+              level={"H"}
+              includeMargin={false}
             />
-            <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 text-[10px] font-mono border border-emerald-800">
-              ID: {member.id}
-            </span>
           </div>
 
-          {/* Member Bio details */}
-          <div className="sm:col-span-2 space-y-3">
-            <div>
-              <h2 className="text-base font-black text-white leading-snug">{member.name}</h2>
-              <p className="text-xs text-emerald-400 font-medium">{member.jabatan}</p>
-            </div>
-
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between border-b border-slate-800/80 pb-1">
-                <span className="text-slate-400">NIP / No. Induk:</span>
-                <span className="font-mono text-slate-200 font-bold">{member.nip}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-800/80 pb-1">
-                <span className="text-slate-400">Fraksi:</span>
-                <span className="font-semibold text-slate-200">{member.fraksi}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-800/80 pb-1">
-                <span className="text-slate-400">Komisi:</span>
-                <span className="font-semibold text-slate-200">{member.komisi}</span>
-              </div>
-            </div>
-
-            {/* QR Code Container */}
-            <div className="p-3 bg-white rounded-2xl border border-emerald-500/30 flex items-center justify-between text-slate-900 shadow-lg">
-              <div className="space-y-0.5">
-                <span className="text-[10px] font-extrabold uppercase text-emerald-800 tracking-wider">QR Presensi Laptop</span>
-                <p className="text-[10px] text-slate-500">Tunjukkan QR ke Kamera Laptop Petugas</p>
-                <p className="font-mono text-[9px] text-slate-400 truncate max-w-[150px]">{member.qrToken}</p>
-              </div>
-              <QRCodeSVG
-                value={member.qrToken}
-                size={80}
-                bgColor={"#ffffff"}
-                fgColor={"#0f172a"}
-                level={"H"}
-                includeMargin={false}
-              />
-            </div>
-
+          <div className="space-y-1">
+            <h4 className="font-black text-sm text-slate-900 leading-snug">
+              {member.name}
+            </h4>
+            <p className="text-[11px] font-bold text-emerald-700">
+              {member.jabatan || 'Anggota DPRD'}
+            </p>
+            <p className="text-[10px] text-slate-500">
+              {member.fraksi} • {member.komisi}
+            </p>
           </div>
 
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Aktif</span>
+          </div>
         </div>
 
-        {/* Card Footer Security Tag */}
-        <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400 relative z-10">
-          <span className="flex items-center gap-1 text-emerald-400">
+        {/* Info Note under QR Card (Sesuai Mockup Screen 5) */}
+        <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300 flex items-start gap-2.5 relative z-10">
+          <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          <p className="text-[11px] leading-relaxed text-slate-300">
+            Kode QR ini digunakan untuk keperluan absensi dan verifikasi digital resmi Badan Kehormatan (BK) DPRD Kabupaten Cirebon.
+          </p>
+        </div>
+
+        {/* Card Security Tag */}
+        <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 relative z-10">
+          <span className="flex items-center gap-1 text-emerald-400 font-medium">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Terverifikasi Sistem SI-RAPORT BK DPRD</span>
+            <span>SI-RAPORT BK DPRD</span>
           </span>
-          <span className="font-mono">VALID PERIODE 2026</span>
+          <span className="font-mono text-slate-400">NIP: {member.nip || '—'}</span>
         </div>
 
       </div>
@@ -160,10 +133,10 @@ export default function MemberQRCard() {
       <div className="no-print flex justify-center space-x-4">
         <button
           onClick={handlePrintCard}
-          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg"
+          className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-extrabold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xl shadow-emerald-950 transition active:scale-95"
         >
           <Printer className="w-4 h-4" />
-          <span>Cetak Kartu Identitas Digital</span>
+          <span>Simpan / Cetak Kartu QR</span>
         </button>
       </div>
 

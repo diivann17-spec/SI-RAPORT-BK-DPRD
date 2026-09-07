@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
 import {
   Calendar, Plus, MapPin, X, Edit2, Trash2,
-  Loader2, CheckCircle, AlertCircle, Clock, ChevronDown
+  Loader2, CheckCircle, AlertCircle, Clock, ChevronDown,
+  ChevronRight, Building2
 } from 'lucide-react';
 
 const EMPTY_FORM = {
@@ -37,6 +38,7 @@ export default function ActivityList() {
   const [saveMsg, setSaveMsg] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [filterCategory, setFilterCategory] = useState('ALL');
+  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
 
   const openAdd = () => { setFormData(EMPTY_FORM); setEditActivity(null); setIsAddOpen(true); setSaveMsg(''); };
   const openEdit = (a) => { setFormData({ ...a }); setEditActivity(a); setIsAddOpen(true); setSaveMsg(''); };
@@ -79,30 +81,72 @@ export default function ActivityList() {
     [logs]
   );
 
+  // 5 Days Quick Calendar Bar (Sesuai Mockup Screen 7)
+  const weekDays = useMemo(() => {
+    const days = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum'];
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 Sun, 1 Mon ...
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - (currentDay === 0 ? 6 : currentDay - 1));
+
+    return days.map((dayName, index) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + index);
+      const dayNum = d.getDate();
+      const monthShort = d.toLocaleString('id-ID', { month: 'short' });
+      return {
+        name: dayName,
+        dateFormatted: `${dayNum} ${monthShort}`,
+        fullDate: d.toISOString().slice(0, 10)
+      };
+    });
+  }, []);
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div>
-          <h1 className="text-lg font-bold text-slate-900 dark:text-white">Agenda & Kegiatan DPRD</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Kelola jadwal rapat, koordinat GPS geofence, dan status kegiatan.</p>
+          <h1 className="text-lg font-bold text-slate-900 dark:text-white">Agenda & Jadwal Kegiatan</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Jadwal sidang paripurna, komisi, dan kegiatan resmi DPRD.</p>
         </div>
         <button
           onClick={openAdd}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow shrink-0"
+          className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span>Buat Agenda Baru</span>
         </button>
       </div>
 
+      {/* ── 5-DAY QUICK CALENDAR STRIP (Sesuai Mockup Screen 7) ── */}
+      <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+        {weekDays.map((day, idx) => {
+          const isSelected = selectedDayIndex === idx;
+          return (
+            <button
+              key={idx}
+              onClick={() => setSelectedDayIndex(idx)}
+              className={`p-2 sm:p-2.5 rounded-2xl text-center transition border ${
+                isSelected
+                  ? 'bg-gradient-to-b from-emerald-600 to-teal-700 text-white border-emerald-500 shadow-md scale-[1.02]'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              <span className="text-[10px] sm:text-xs font-medium block opacity-90">{day.name}</span>
+              <span className="text-xs sm:text-sm font-extrabold block mt-0.5">{day.dateFormatted}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Filter kategori */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-1">
         {['ALL', 'Paripurna', 'Komisi', 'Banmus', 'Banggar', 'Reses', 'Kunjungan Kerja'].map(cat => (
           <button
             key={cat}
             onClick={() => setFilterCategory(cat)}
-            className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+            className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all whitespace-nowrap shrink-0 ${
               filterCategory === cat
                 ? 'bg-emerald-600 text-white border-emerald-600'
                 : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-emerald-500'
@@ -126,20 +170,20 @@ export default function ActivityList() {
         <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
           <Calendar className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
           <p className="text-slate-500 text-sm font-semibold">Belum ada agenda kegiatan</p>
-          <p className="text-slate-400 text-xs mt-1">Klik "Buat Agenda Baru" untuk menambahkan kegiatan pertama.</p>
-          <button onClick={openAdd} className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs">
-            + Buat Agenda Sekarang
-          </button>
+          <p className="text-slate-400 text-xs mt-1">Klik "Buat Agenda Baru" untuk menambahkan kegiatan.</p>
         </div>
       )}
 
-      {/* List */}
+      {/* List Card (Sesuai Mockup Mobile Screen 7) */}
       <div className="space-y-3">
         {filtered.map(a => {
           const absensiCount = getAttendanceCount(a.id);
           const colorClass = CATEGORY_COLORS[a.category] || 'bg-slate-900 text-slate-300 border-slate-700';
           return (
-            <div key={a.id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div
+              key={a.id}
+              className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-md hover:border-slate-700 transition"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0 space-y-2">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -147,45 +191,42 @@ export default function ActivityList() {
                       {a.category}
                     </span>
                     <span className="text-xs text-slate-400 font-mono">{a.date}</span>
-                    <span className="text-xs text-slate-400">{a.startTime} – {a.endTime}</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      a.status === 'ACTIVE'
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
-                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
-                    }`}>
-                      {a.status === 'ACTIVE' ? '● Aktif' : '○ Selesai'}
-                    </span>
+                    <span className="text-xs text-slate-400">{a.startTime} – {a.endTime} WIB</span>
                   </div>
-                  <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">{a.title}</h3>
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+
+                  <h3 className="font-extrabold text-sm text-white leading-snug">{a.title}</h3>
+
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
                     <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    <span>{a.locationName}</span>
-                    <span className="text-slate-300 dark:text-slate-700">•</span>
-                    <span className="font-semibold text-slate-700 dark:text-slate-300">Radius GPS: {a.radiusMeters}m</span>
-                    <span className="text-slate-300 dark:text-slate-700">•</span>
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">{absensiCount} Absensi Tercatat</span>
+                    <span className="truncate">{a.locationName}</span>
+                    <span className="text-slate-600">•</span>
+                    <span className="text-emerald-400 font-bold shrink-0">{absensiCount} Presensi</span>
                   </div>
-                  {a.description && <p className="text-xs text-slate-400 italic">{a.description}</p>}
+
+                  {a.description && <p className="text-xs text-slate-400 italic leading-relaxed">{a.description}</p>}
                 </div>
-                <div className="flex gap-1 shrink-0">
-                  <button
-                    onClick={() => openEdit(a)}
-                    className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-950/40 rounded-lg transition"
-                    title="Edit"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(a.id, a.title)}
-                    disabled={deletingId === a.id}
-                    className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition disabled:opacity-50"
-                    title="Hapus"
-                  >
-                    {deletingId === a.id
-                      ? <Loader2 className="w-4 h-4 animate-spin" />
-                      : <Trash2 className="w-4 h-4" />
-                    }
-                  </button>
+
+                <div className="flex flex-col sm:flex-row gap-1 shrink-0 items-end">
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => openEdit(a)}
+                      className="p-2 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition"
+                      title="Edit"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(a.id, a.title)}
+                      disabled={deletingId === a.id}
+                      className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition disabled:opacity-50"
+                      title="Hapus"
+                    >
+                      {deletingId === a.id
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : <Trash2 className="w-4 h-4" />
+                      }
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
