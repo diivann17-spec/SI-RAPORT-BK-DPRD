@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Outer Gold Shield Background -->
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE68A" />
+      <stop offset="40%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#B45309" />
+    </linearGradient>
+    <linearGradient id="emeraldDark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064E3B" />
+      <stop offset="100%" stop-color="#022C22" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#F59E0B" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Outer Rounded Shield -->
+  <rect x="6" y="6" width="88" height="88" rx="24" fill="url(#goldGrad)" filter="url(#glow)"/>
+  
+  <!-- Inner Dark Emerald Container -->
+  <rect x="11" y="11" width="78" height="78" rx="20" fill="url(#emeraldDark)" stroke="#FDE68A" stroke-width="1.5" stroke-opacity="0.6"/>
+
+  <!-- Building / DPRD Crown Dome Shape -->
+  <!-- Pillars -->
+  <rect x="26" y="48" width="6" height="26" rx="2" fill="#FDE68A"/>
+  <rect x="38" y="48" width="6" height="26" rx="2" fill="#FDE68A"/>
+  <rect x="56" y="48" width="6" height="26" rx="2" fill="#FDE68A"/>
+  <rect x="68" y="48" width="6" height="26" rx="2" fill="#FDE68A"/>
+
+  <!-- Pediment / Base -->
+  <rect x="22" y="74" width="56" height="6" rx="2" fill="#F59E0B"/>
+
+  <!-- Arch Dome Roof (DPRD Landmark Roof) -->
+  <path d="M22 46 C22 46 36 32 50 32 C64 32 78 46 78 46 L78 44 C78 44 64 26 50 26 C36 26 22 44 22 44 Z" fill="#FDE68A" />
+  <path d="M20 44 L80 44 L80 48 L20 48 Z" fill="#F59E0B"/>
+
+  <!-- Center Star / Sparkle Badge -->
+  <path d="M50 16 L52.5 22.5 L59 23 L54 27.5 L55.5 34 L50 30.5 L44.5 34 L46 27.5 L41 23 L47.5 22.5 Z" fill="#FDE68A" stroke="#B45309" stroke-width="0.75"/>
+</svg>

@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-main: #f8fafc;
+    --text-primary: #0f172a;
+    --brand-primary: #047857; /* Deep Emerald */
+    --brand-accent: #b45309; /* Brass / Gold */
+  }
+
+  body {
+    background-color: #f1f5f9;
+    color: #0f172a;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom Utilities for Glassmorphism & Raport Badges */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.dark .glass-panel {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+}
+
+/* Color Status Badges */
+.badge-hijau {
+  background-color: #d1fae5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.badge-kuning {
+  background-color: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.badge-merah {
+  background-color: #ffe4e6;
+  color: #9f1239;
+  border: 1px solid #fecdd3;
+}
+
+/* Pulse animation for active webcam & live status */
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 0.4; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.live-indicator {
+  animation: pulse-ring 2s infinite ease-in-out;
+}
+
+/* Falling snow particle animation */
+@keyframes splashSnowFall {
+  0% {
+    top: -20px;
+    transform: translateY(0) rotate(0deg) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.95;
+  }
+  85% {
+    opacity: 0.85;
+  }
+  100% {
+    top: 105vh;
+    transform: translateY(0) rotate(360deg) scale(1.2);
+    opacity: 0;
+  }
+}
+
+.animate-splash-snow {
+  animation: splashSnowFall linear infinite;
+}
+
+/* Realistic Velvet Curtain Texture with 3D Pleats */
+.curtain-velvet-left {
+  background: 
+    repeating-linear-gradient(
+      90deg,
+      #031711 0px,
+      #04291e 18px,
+      #064e3b 36px,
+      #086f54 54px,
+      #064e3b 72px,
+      #04291e 90px,
+      #031711 108px
+    );
+  box-shadow: inset -25px 0 50px rgba(0, 0, 0, 0.95), 20px 0 45px rgba(0, 0, 0, 0.9);
+}
+
+.curtain-velvet-right {
+  background: 
+    repeating-linear-gradient(
+      90deg,
+      #031711 0px,
+      #04291e 18px,
+      #064e3b 36px,
+      #086f54 54px,
+      #064e3b 72px,
+      #04291e 90px,
+      #031711 108px
+    );
+  box-shadow: inset 25px 0 50px rgba(0, 0, 0, 0.95), -20px 0 45px rgba(0, 0, 0, 0.9);
+}
+
+/* Print CSS formatting for e-Raport PDF output (F4 / Folio: 215mm x 330mm) */
+@page {
+  size: 215mm 330mm portrait; /* F4 / Folio standard paper */
+  margin: 12mm 15mm 12mm 15mm;
+}
+
+@media print {
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-page {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    page-break-inside: auto;
+  }
+  /* Keep tables neat and prevent awkward page cuts */
+  table {
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  thead {
+    display: table-header-group;
+  }
+}
