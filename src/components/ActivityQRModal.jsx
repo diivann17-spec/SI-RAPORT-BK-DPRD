@@ -100,13 +100,17 @@ export default function ActivityQRModal({ isOpen, onClose, activity }) {
   // ─── Hitung URL QR secara real-time dari state lanIpInput ───────────────
   const { protocol, hostname, port, pathname } = window.location;
   const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-  const activePort = port || localStorage.getItem('siraport_lan_port') || '5174';
+  // Di produksi (Vercel) port kosong → tidak perlu ditambahkan. Fallback port hanya untuk localhost dev.
+  const activePort = isLocalhost
+    ? (port || localStorage.getItem('siraport_lan_port') || '5173')
+    : port;
+  const activePortStr = activePort ? `:${activePort}` : '';
 
   // URL yang dikode di QR — selalu aktif, berbasis IP jika ada
   const effectiveLanIp = lanIpInput.trim() || (isLocalhost ? '' : hostname);
   const qrBase = effectiveLanIp
-    ? `${protocol}//${effectiveLanIp}:${activePort}`
-    : `${protocol}//${hostname}:${activePort}`;
+    ? `${protocol}//${effectiveLanIp}${activePortStr}`
+    : `${protocol}//${hostname}${activePortStr}`;
   const qrValue = `${qrBase}${pathname.replace(/\/$/, '')}?absen=${activity.id}&token=${encodeURIComponent(activity.qrToken || activity.id)}`;
   const needsLanIp = isLocalhost && !effectiveLanIp;
 
