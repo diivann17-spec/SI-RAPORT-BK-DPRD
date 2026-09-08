@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AttendanceProvider, useAttendance } from './context/AttendanceContext';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
@@ -15,6 +15,7 @@ import MemberPortal from './pages/MemberPortal';
 import AuditLogs from './pages/AuditLogs';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import PublicAttendancePage from './pages/PublicAttendancePage';
 import SplashScreen from './components/SplashScreen';
 import { Loader2 } from 'lucide-react';
 
@@ -26,6 +27,16 @@ function AppInner() {
     () => (currentRole === 'ANGGOTA_DPRD' ? 'member_portal' : 'dashboard')
   );
 
+  // Deteksi jika user membuka halaman presensi dari scan Google Lens / QR Agenda URL (?absen=ACT-xxx)
+  const [scannedActivityId, setScannedActivityId] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('absen') || null;
+    } catch (e) {
+      return null;
+    }
+  });
+
   // Sync tab when switching roles
   React.useEffect(() => {
     if (currentRole === 'ANGGOTA_DPRD') {
@@ -34,6 +45,20 @@ function AppInner() {
       setActiveTab('dashboard');
     }
   }, [currentRole]);
+
+  // Jika membuka dari QR Code Agenda langsung (Google Lens / Kamera HP tanpa login wajib)
+  if (scannedActivityId) {
+    return (
+      <PublicAttendancePage
+        initialActivityId={scannedActivityId}
+        onBackToApp={() => {
+          // Bersihkan query param dari URL
+          window.history.replaceState({}, '', window.location.pathname);
+          setScannedActivityId(null);
+        }}
+      />
+    );
+  }
 
   if (!currentUser) {
     return <Login />;
@@ -58,7 +83,7 @@ function AppInner() {
         <div className="fixed top-14 sm:top-16 inset-x-0 z-40 flex items-center justify-center">
           <div className="bg-slate-900/95 border border-slate-700 text-white text-xs px-4 py-2 rounded-full shadow-xl flex items-center gap-2 backdrop-blur-sm">
             <Loader2 className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
-            <span>Memuat data dari Cloud Firestore...</span>
+            <span>Memuat data dari database...</span>
           </div>
         </div>
       )}
@@ -100,7 +125,14 @@ function AppInner() {
 }
 
 export default function App() {
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(() => {
+    // Jangan tampilkan splash screen panjang jika user membuka langsung link presensi QR
+    try {
+      return !window.location.search.includes('absen=');
+    } catch (e) {
+      return true;
+    }
+  });
 
   return (
     <AttendanceProvider>

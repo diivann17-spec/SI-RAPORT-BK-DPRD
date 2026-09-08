@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { useAttendance } from '../context/AttendanceContext';
 import { isWithinRadius, formatDistance } from '../utils/geoUtils';
+import { calculateAttendanceStatus } from '../utils/raportUtils';
+import { getDeviceFingerprint } from '../utils/deviceUtils';
 import {
   MapPin, Smartphone, Navigation, CheckCircle2,
   AlertTriangle, RefreshCw, ShieldCheck, Loader2,
-  Camera, Upload, X, Users, Calendar
+  Camera, Upload, X, Users, Calendar, Clock, FileText
 } from 'lucide-react';
 
 export default function GPSAttendance() {
@@ -18,7 +20,7 @@ export default function GPSAttendance() {
 
   const activeMember = getMemberById(activeMemberId);
 
-  // Auto-select aktif anggota dan kegiatan setelah Firestore load
+  // Auto-select aktif anggota dan kegiatan setelah data load
   const [selectedActivityId, setSelectedActivityId] = useState('');
   useEffect(() => {
     if (!selectedActivityId && activities.length > 0) {
@@ -37,22 +39,28 @@ export default function GPSAttendance() {
   const [geoError, setGeoError] = useState('');
   const [isLocating, setIsLocating] = useState(false);
 
+  // Dinas Luar (SPT) Form State
+  const [isDinasLuar, setIsDinasLuar] = useState(false);
+  const [sptNumber, setSptNumber] = useState('');
+  const [sptNote, setSptNote] = useState('');
+
   // Foto bukti
-  const [proofPhotoFile, setProofPhotoFile] = useState(null);
   const [proofPhotoPreview, setProofPhotoPreview] = useState('');
   const fileInputRef = useRef(null);
 
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(null); // null | object log
+  const [submitSuccess, setSubmitSuccess] = useState(null);
   const [submitError, setSubmitError] = useState('');
+
+  // Device Info
+  const deviceInfo = getDeviceFingerprint();
 
   // Auto-fetch GPS on load
   useEffect(() => {
     fetchCurrentLocation();
   }, [selectedActivityId]);
 
-  // Reset success state ketika ganti kegiatan
   useEffect(() => {
     setSubmitSuccess(null);
     setSubmitError('');
@@ -63,7 +71,7 @@ export default function GPSAttendance() {
     setGeoError('');
 
     if (!navigator.geolocation) {
-      setGeoError('Browser tidak mendukung Geolocation. Menggunakan koordinat simulasi.');
+      setGeoError('Browser tidak mendukung Geolocation. Menggunakan simulasi koordinat.');
       setIsLocating(false);
       setUserLocation({
         lat: Number(selectedActivity?.targetLat) || -6.200000,
@@ -85,13 +93,12 @@ export default function GPSAttendance() {
       },
       (err) => {
         const msg = err.code === 1
-          ? 'Izin akses GPS belum aktif di browser.'
+          ? 'Izin akses GPS belum diizinkan.'
           : err.code === 2
-            ? 'Posisi GPS perangkat belum terdeteksi.'
-            : 'Pencarian sinyal GPS timeout.';
+            ? 'Posisi GPS belum terdeteksi.'
+            : 'Pencarian GPS timeout.';
         setGeoError(`${msg} (Koordinat simulasi siap digunakan).`);
         setIsLocating(false);
-        // Fallback langsung ke koordinat yang berada dalam radius agenda
         if (selectedActivity) {
           const actLat = Number(selectedActivity.targetLat) || -6.200000;
           const actLng = Number(selectedActivity.targetLng) || 106.816666;
@@ -106,7 +113,7 @@ export default function GPSAttendance() {
     );
   };
 
-  // Hitung geofence dengan casting Number yang aman
+  // Hitung geofence radius
   const radiusCheck = (userLocation && selectedActivity)
     ? isWithinRadius(
       Number(userLocation.lat),
@@ -117,11 +124,13 @@ export default function GPSAttendance() {
     )
     : { isWithin: true, distance: 0, radiusMeters: Number(selectedActivity?.radiusMeters) || 150 };
 
+  // Hitung status keterlambatan otomatis
+  const timeCalc = selectedActivity ? calculateAttendanceStatus(selectedActivity, new Date()) : { status: 'Hadir', message: 'Tepat waktu' };
+
   // Handle pilih foto bukti
   const handlePhotoChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setProofPhotoFile(file);
     const reader = new FileReader();
     reader.onload = ev => setProofPhotoPreview(ev.target?.result || '');
     reader.readAsDataURL(file);
@@ -139,336 +148,279 @@ export default function GPSAttendance() {
     const currentLng = userLocation ? Number(userLocation.lng) : (Number(selectedActivity.targetLng) || 106.81);
     const currentDist = radiusCheck ? Math.round(radiusCheck.distance) : 0;
 
-    // Upload foto bukti jika ada (kirim sebagai base64 atau URL)
-    let proofPhotoUrl = proofPhotoPreview || '';
+    let finalStatus = isDinasLuar ? 'Dinas Luar' : timeCalc.status;
+    let finalNote = isDinasLuar 
+      ? `Dinas Luar SPT: ${sptNumber}. ${sptNote || ''}`
+      : `${timeCalc.message}. ${note || ''}`;
 
-    const result = await recordAttendance({
+    const res = await recordAttendance({
       activityId: selectedActivity.id,
       memberId: activeMemberId,
+      status: finalStatus,
       method: 'GPS_ONLINE',
+      operatorName: 'Mandiri (Mobile Presensi)',
       lat: currentLat,
       lng: currentLng,
       distanceMeters: currentDist,
-      proofPhoto: proofPhotoUrl,
-      operatorName: activeMember?.name || 'Anggota DPRD',
-      note: note || `Presensi GPS Online — Jarak ${currentDist}m dari lokasi`
+      note: finalNote,
+      sptNumber: isDinasLuar ? sptNumber : null
     });
 
     setIsSubmitting(false);
 
-    if (result.success) {
-      setSubmitSuccess(result);
-      try { confetti({ particleCount: 70, spread: 65, origin: { y: 0.5 } }); } catch (e) { }
+    if (res.success) {
+      setSubmitSuccess(res.log);
+      confetti({ particleCount: 60, spread: 70, origin: { y: 0.7 } });
     } else {
-      setSubmitError(result.message || 'Gagal menyimpan absensi GPS ke Firestore.');
+      setSubmitError(res.message || 'Gagal mengirimkan presensi GPS.');
     }
   };
 
-  // ── Loading state ──
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
-        <span className="ml-3 text-slate-400">Memuat data dari Firestore...</span>
-      </div>
-    );
-  }
-
-  // ── Belum ada agenda ──
-  if (activities.length === 0) {
-    return (
-      <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-        <Calendar className="w-14 h-14 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
-        <h2 className="text-slate-600 dark:text-slate-300 font-bold text-lg">Belum Ada Agenda Kegiatan</h2>
-        <p className="text-slate-400 text-sm mt-2">Buat agenda kegiatan terlebih dahulu di menu <strong>Agenda Kegiatan</strong>.</p>
-      </div>
-    );
-  }
-
-  // ── Belum ada anggota ──
-  if (members.length === 0) {
-    return (
-      <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-        <Users className="w-14 h-14 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
-        <h2 className="text-slate-600 dark:text-slate-300 font-bold text-lg">Belum Ada Data Anggota</h2>
-        <p className="text-slate-400 text-sm mt-2">Tambahkan anggota DPRD terlebih dahulu di menu <strong>Anggota DPRD</strong>.</p>
-      </div>
-    );
-  }
-
-  const alreadyPresent = existingLog && !submitSuccess;
-
   return (
-    <div className="max-w-2xl mx-auto space-y-5">
-
-      {/* Header */}
-      <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 text-white shadow-2xl">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-            <Smartphone className="w-5 h-5" />
+    <div className="space-y-4 sm:space-y-6">
+      
+      {/* Header Banner */}
+      <div className="p-4 sm:p-6 rounded-3xl bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border border-slate-800 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center space-x-2">
+            <span className="bg-emerald-500/20 text-emerald-300 text-[10px] sm:text-xs font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-500/30 uppercase tracking-wide">
+              Multi-Faktor Presensi Mandiri
+            </span>
           </div>
-          <div>
-            <span className="text-[10px] font-extrabold uppercase text-emerald-400 tracking-wider">Absensi GPS Online</span>
-            <h2 className="font-extrabold text-base text-white leading-tight">Presensi Berbasis Lokasi GPS</h2>
-          </div>
+          <h1 className="text-lg sm:text-xl font-extrabold text-white">Presensi Lokasi GPS & Perangkat</h1>
+          <p className="text-xs text-slate-300">
+            Validasi koordinat radius lokasi, waktu jadwal agenda, dan kuncian perangkat gadget.
+          </p>
         </div>
-        <p className="text-xs text-slate-400 ml-12">Verifikasi lokasi anggota dengan GPS geofencing. Cocok untuk reses, kunjungan kerja, atau kegiatan luar gedung.</p>
-      </div>
 
-      {/* Pilih Anggota */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-          <Users className="w-4 h-4 text-emerald-500" /> Pilih Anggota DPRD
-        </h3>
-        <select
-          value={activeMemberId || ''}
-          onChange={e => { setActiveMemberId(e.target.value); setSubmitSuccess(null); }}
-          className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-200 text-xs font-semibold focus:ring-2 focus:ring-emerald-500"
-        >
-          <option value="">— Pilih Anggota —</option>
-          {members.map(m => (
-            <option key={m.id} value={m.id}>{m.name} — {m.fraksi}</option>
-          ))}
-        </select>
-
-        {/* Profile anggota terpilih */}
-        {activeMember && (
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            {activeMember.photo
-              ? <img src={activeMember.photo} alt="" className="w-10 h-10 rounded-full object-cover border-2 border-emerald-500 shrink-0" />
-              : <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-white font-bold shrink-0">{activeMember.name?.charAt(0)}</div>
-            }
-            <div>
-              <p className="font-bold text-slate-900 dark:text-white text-xs">{activeMember.name}</p>
-              <p className="text-[11px] text-slate-400">{activeMember.fraksi} • {activeMember.jabatan}</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Pilih Agenda */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-emerald-500" /> Pilih Agenda Kegiatan
-        </h3>
-        <select
-          value={selectedActivityId}
-          onChange={e => { setSelectedActivityId(e.target.value); setSubmitSuccess(null); setSubmitError(''); }}
-          className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-200 text-xs font-semibold focus:ring-2 focus:ring-emerald-500"
-        >
-          {activities.map(a => (
-            <option key={a.id} value={a.id}>[{a.category}] {a.title} — {a.date}</option>
-          ))}
-        </select>
-
-        {selectedActivity && (
-          <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-            <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-              <p className="text-slate-400">Lokasi</p>
-              <p className="font-semibold text-slate-700 dark:text-slate-200">{selectedActivity.locationName}</p>
-            </div>
-            <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-              <p className="text-slate-400">Waktu</p>
-              <p className="font-semibold text-slate-700 dark:text-slate-200">{selectedActivity.date} {selectedActivity.startTime}</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* GPS Location Box */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-            <Navigation className="w-4 h-4 text-blue-500" /> Status Lokasi GPS
-          </h3>
+        <div className="flex items-center space-x-2 w-full sm:w-auto">
           <button
             onClick={fetchCurrentLocation}
             disabled={isLocating}
-            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 text-slate-700 dark:text-slate-300 disabled:opacity-50"
+            className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLocating ? 'animate-spin' : ''}`} />
-            {isLocating ? 'Mencari...' : 'Perbarui Lokasi'}
+            <RefreshCw className={`w-4 h-4 text-emerald-400 ${isLocating ? 'animate-spin' : ''}`} />
+            <span>{isLocating ? 'Mencari Lokasi...' : 'Perbarui Sinyal GPS'}</span>
           </button>
         </div>
+      </div>
 
-        {geoError && (
-          <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-xs flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{geoError}</span>
-          </div>
-        )}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        
+        {/* Kolom Kiri: Form & Status Presensi */}
+        <div className="lg:col-span-2 space-y-4">
+          
+          {/* Card Pilih Anggota & Agenda */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            
+            {/* Anggota Selector */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-2">
+                <Users className="w-4 h-4 text-emerald-500" />
+                <span>Identitas Anggota DPRD:</span>
+              </label>
+              <select
+                value={activeMemberId}
+                onChange={e => setActiveMemberId(e.target.value)}
+                className="w-full p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white"
+              >
+                {members.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.fraksi} • {m.komisi})
+                  </option>
+                ))}
+              </select>
+            </div>
 
-        {/* Koordinat */}
-        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono space-y-1.5">
-          <div className="flex justify-between text-slate-300">
-            <span className="text-slate-500">Koordinat Anda:</span>
-            {isLocating
-              ? <span className="text-amber-400 animate-pulse">Mencari GPS...</span>
-              : <span className="text-emerald-400">{userLocation?.lat?.toFixed(6)}, {userLocation?.lng?.toFixed(6)}</span>
-            }
+            {/* Agenda Selector */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-cyan-500" />
+                <span>Pilih Agenda Kegiatan yang Dihadiri:</span>
+              </label>
+              <select
+                value={selectedActivityId}
+                onChange={e => setSelectedActivityId(e.target.value)}
+                className="w-full p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white"
+              >
+                {activities.map(a => (
+                  <option key={a.id} value={a.id}>
+                    [{a.category}] {a.title} ({a.date} • {a.startTime} WIB)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Live Agenda Status Box */}
+            {selectedActivity && (
+              <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/60 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 font-medium">Batas Toleransi Keterlambatan:</span>
+                  <span className="font-bold text-amber-400 font-mono">{selectedActivity.toleranceMinutes || 30} Menit</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 font-medium">Radius Presensi Gedung:</span>
+                  <span className="font-bold text-cyan-400 font-mono">Maks. {selectedActivity.radiusMeters || 150} Meter</span>
+                </div>
+                <div className="flex items-center justify-between pt-1 border-t border-slate-700/60">
+                  <span className="text-slate-400 font-medium">Estimasi Status Waktu Server:</span>
+                  <span className={`font-bold ${timeCalc.isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {timeCalc.message}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Toggle Dinas Luar (SPT) */}
+            <div className="p-4 rounded-2xl bg-indigo-950/40 border border-indigo-800/50 space-y-3 text-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-indigo-200 block">Sedang Menjalankan Dinas Luar / SPT?</span>
+                  <span className="text-[11px] text-slate-400">Status akan dicatat sebagai Dinas Luar resmi (Bukan Alpha).</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDinasLuar(!isDinasLuar)}
+                  className={`w-12 h-6 rounded-full transition relative p-0.5 ${isDinasLuar ? 'bg-indigo-600' : 'bg-slate-700'}`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white transition-transform ${isDinasLuar ? 'translate-x-6' : 'translate-x-0'}`} />
+                </button>
+              </div>
+
+              {isDinasLuar && (
+                <div className="space-y-2.5 pt-2 border-t border-indigo-800/60">
+                  <div>
+                    <label className="block font-bold text-indigo-300 mb-1">Nomor Surat Perintah Tugas (SPT):</label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: SPT.090/451/BK-DPRD/IX/2026"
+                      value={sptNumber}
+                      onChange={e => setSptNumber(e.target.value)}
+                      className="w-full p-2.5 bg-slate-900 border border-indigo-500/50 rounded-xl text-white text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-indigo-300 mb-1">Keterangan Penugasan:</label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: Koordinasi teknis dengan Kementerian Dalam Negeri di Jakarta"
+                      value={sptNote}
+                      onChange={e => setSptNote(e.target.value)}
+                      className="w-full p-2.5 bg-slate-900 border border-indigo-500/50 rounded-xl text-white text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Error Message */}
+            {submitError && (
+              <div className="p-3.5 bg-rose-950/70 border border-rose-800 rounded-2xl text-rose-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
+                <span>{submitError}</span>
+              </div>
+            )}
+
+            {/* Success Message */}
+            {submitSuccess && (
+              <div className="p-4 bg-emerald-950/70 border border-emerald-800 rounded-2xl text-emerald-300 text-xs flex items-center gap-3 animate-fadeIn">
+                <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
+                <div>
+                  <h4 className="font-bold text-sm text-white">Presensi Berhasil Diverifikasi!</h4>
+                  <p className="text-[11px] text-emerald-200 mt-0.5">
+                    Status: <strong>{submitSuccess.status}</strong> • Metode: {submitSuccess.method}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Tombol Kirim Presensi */}
+            <button
+              onClick={handleSubmitGPS}
+              disabled={isSubmitting || !!submitSuccess}
+              className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-2xl text-xs sm:text-sm shadow-lg shadow-emerald-900/30 transition flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Memvalidasi Multi-Faktor...</span>
+                </>
+              ) : (
+                <>
+                  <Smartphone className="w-5 h-5" />
+                  <span>Kirim Presensi GPS Sekarang</span>
+                </>
+              )}
+            </button>
+
           </div>
-          <div className="flex justify-between text-slate-400">
-            <span>Akurasi:</span>
-            <span>± {userLocation?.accuracy || '?'} meter</span>
-          </div>
-          <div className="flex justify-between text-slate-400">
-            <span>Jarak ke Lokasi Kegiatan:</span>
-            <span className="font-bold text-slate-200">{userLocation ? formatDistance(radiusCheck.distance) : '—'}</span>
-          </div>
-          <div className="flex justify-between text-slate-400">
-            <span>Radius Toleransi:</span>
-            <span className="font-bold text-slate-200">{selectedActivity?.radiusMeters || '—'} meter</span>
-          </div>
+
         </div>
 
-        {/* Status Geofence */}
-        {userLocation && (
-          <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs ${radiusCheck.isWithin
-              ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
-              : 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-300'
-            }`}>
-            <div className="flex items-center gap-3">
-              {radiusCheck.isWithin
-                ? <ShieldCheck className="w-6 h-6 text-emerald-500 shrink-0" />
-                : <AlertTriangle className="w-6 h-6 text-rose-500 shrink-0" />
-              }
-              <div>
-                <p className="font-extrabold">
-                  {radiusCheck.isWithin ? '✓ LOKASI TERVERIFIKASI DALAM RADIUS' : '✗ DI LUAR RADIUS LOKASI KEGIATAN'}
-                </p>
-                <p className="opacity-80 mt-0.5">
-                  {radiusCheck.isWithin
-                    ? `Jarak Anda ${Math.round(radiusCheck.distance)}m. Presensi GPS diizinkan.`
-                    : `Jarak Anda ${Math.round(radiusCheck.distance)}m melebihi batas ${selectedActivity?.radiusMeters}m.`
-                  }
-                </p>
+        {/* Kolom Kanan: Status Perangkat & Geofencing Info */}
+        <div className="space-y-4">
+          
+          {/* Card Device Lock & Anti Titip Absen */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+            <div className="flex items-center space-x-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-400" />
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">Identitas Perangkat (Device Lock)</h3>
+            </div>
+            
+            <p className="text-xs text-slate-400">
+              Sistem mencatat identitas unik gadget untuk menjamin aturan <strong>1 Perangkat 1x Absen</strong> per agenda.
+            </p>
+
+            <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-1.5 text-xs font-mono">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Device ID:</span>
+                <span className="text-emerald-400 font-bold truncate max-w-[150px]">{deviceInfo.deviceId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Tipe:</span>
+                <span className="text-white">{deviceInfo.deviceType}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Sistem / Browser:</span>
+                <span className="text-slate-300 truncate max-w-[150px]">{deviceInfo.os} • {deviceInfo.browser}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card Geofencing & Radius GPS */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+            <div className="flex items-center space-x-2">
+              <MapPin className="w-5 h-5 text-cyan-400" />
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">Geofencing & Koordinat</h3>
+            </div>
+
+            <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Jarak ke Titik Agenda:</span>
+                <span className="font-bold text-white font-mono">{formatDistance(radiusCheck.distance)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Batas Toleransi:</span>
+                <span className="font-bold text-cyan-400 font-mono">Maks. {radiusCheck.radiusMeters} Meter</span>
+              </div>
+              <div className="pt-1.5 border-t border-slate-700 flex justify-between items-center">
+                <span className="text-slate-400">Status Radius:</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${radiusCheck.isWithin ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'}`}>
+                  {radiusCheck.isWithin ? 'Di Dalam Radius' : 'Di Luar Radius'}
+                </span>
               </div>
             </div>
 
-            {/* Quick Test Button to snap to location */}
-            {!radiusCheck.isWithin && selectedActivity && (
-              <button
-                type="button"
-                onClick={() => {
-                  setUserLocation({
-                    lat: selectedActivity.targetLat + 0.0001,
-                    lng: selectedActivity.targetLng + 0.0001,
-                    accuracy: 10
-                  });
-                }}
-                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-bold text-[11px] shrink-0 shadow"
-              >
-                📍 Simulasi Tepat di Lokasi
-              </button>
+            {geoError && (
+              <p className="text-[11px] text-amber-400 bg-amber-950/40 p-2.5 rounded-xl border border-amber-800/40">
+                {geoError}
+              </p>
             )}
           </div>
-        )}
+
+        </div>
+
       </div>
-
-      {/* Upload Foto Bukti */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-          <Camera className="w-4 h-4 text-purple-500" /> Foto Bukti Kehadiran <span className="text-slate-400 font-normal text-xs">(opsional)</span>
-        </h3>
-        <p className="text-xs text-slate-500">Upload foto selfie atau foto kegiatan sebagai bukti kehadiran untuk reses/kunjungan kerja.</p>
-
-        <div className="flex items-center gap-4">
-          {proofPhotoPreview ? (
-            <div className="relative shrink-0">
-              <img src={proofPhotoPreview} alt="bukti" className="w-20 h-20 rounded-xl object-cover border-2 border-purple-500" />
-              <button
-                type="button"
-                onClick={() => { setProofPhotoFile(null); setProofPhotoPreview(''); }}
-                className="absolute -top-1 -right-1 w-5 h-5 bg-rose-600 rounded-full flex items-center justify-center text-white"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ) : (
-            <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center bg-slate-50 dark:bg-slate-800 shrink-0">
-              <Camera className="w-6 h-6 text-slate-400" />
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-950/40 border border-slate-200 dark:border-slate-700 hover:border-purple-400 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 text-slate-700 dark:text-slate-300 transition"
-          >
-            <Upload className="w-4 h-4 text-purple-500" />
-            {proofPhotoFile ? 'Ganti Foto' : 'Upload Foto Bukti'}
-          </button>
-          <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" />
-        </div>
-      </div>
-
-      {/* Catatan */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
-        <label className="block font-bold text-sm text-slate-900 dark:text-white">Catatan Presensi (Opsional)</label>
-        <input
-          type="text"
-          value={note}
-          onChange={e => setNote(e.target.value)}
-          placeholder="Contoh: Menghadiri reses kelompok masyarakat RW 04 Kelurahan Merdeka..."
-          className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-200 text-xs focus:ring-2 focus:ring-emerald-500"
-        />
-      </div>
-
-      {/* Error */}
-      {submitError && (
-        <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{submitError}</span>
-        </div>
-      )}
-
-      {/* Sudah Absen */}
-      {alreadyPresent && (
-        <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-center space-y-1">
-          <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
-          <h4 className="font-extrabold text-emerald-800 dark:text-emerald-300">SUDAH TERCATAT — {existingLog.status?.toUpperCase()}</h4>
-          <p className="text-xs text-slate-500">via {existingLog.method} · Jarak {existingLog.distanceMeters ?? '?'}m</p>
-        </div>
-      )}
-
-      {/* Sukses baru submit */}
-      {submitSuccess && (
-        <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-center space-y-2">
-          <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto animate-bounce" />
-          <h4 className="font-extrabold text-emerald-800 dark:text-emerald-300 text-base">PRESENSI GPS BERHASIL TERCATAT!</h4>
-          <p className="text-xs text-slate-500">
-            {activeMember?.name} · {selectedActivity?.title}
-          </p>
-          <p className="text-xs text-emerald-600 dark:text-emerald-400 font-mono">
-            {new Date().toLocaleTimeString('id-ID')} WIB · Jarak {Math.round(radiusCheck.distance)}m dari lokasi
-          </p>
-        </div>
-      )}
-
-      {/* Submit Button */}
-      {!alreadyPresent && !submitSuccess && (
-        <button
-          onClick={handleSubmitGPS}
-          disabled={isSubmitting || !activeMemberId || !selectedActivityId}
-          className={`w-full py-4 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2.5 transition-all ${!isSubmitting && activeMemberId && selectedActivityId
-              ? 'bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white hover:scale-[1.01] active:scale-[0.99] cursor-pointer'
-              : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
-            }`}
-        >
-          {isSubmitting
-            ? <><Loader2 className="w-5 h-5 animate-spin" /><span>Menyimpan Absensi ke Firestore...</span></>
-            : <><MapPin className="w-5 h-5" /><span>Kirim Presensi GPS Sekarang</span></>
-          }
-        </button>
-      )}
-
-      {submitSuccess && (
-        <button
-          onClick={() => { setSubmitSuccess(null); setNote(''); setProofPhotoFile(null); setProofPhotoPreview(''); }}
-          className="w-full py-3 rounded-2xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-300 dark:hover:bg-slate-700"
-        >
-          <RefreshCw className="w-4 h-4" /> Presensi Anggota Lain
-        </button>
-      )}
 
     </div>
   );

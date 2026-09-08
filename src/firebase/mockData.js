@@ -1,6 +1,7 @@
 /**
  * Mock Data Engine for SI-RAPORT BK DPRD
- * Fully realistic initial dataset with LocalStorage persistence & Firebase sync capability
+ * Dilengkapi data Agenda QR Code, Peserta Internal & Eksternal (OPD/Tamu),
+ * Perwakilan Instansi, Dokumen SPT Dinas Luar, Notulen LPJ Digital, dan Device Log.
  */
 
 export const INITIAL_MEMBERS = [
@@ -15,6 +16,7 @@ export const INITIAL_MEMBERS = [
     phone: '0812-9876-5432',
     email: 'bambang.soesatyo@dprd.go.id',
     qrToken: 'QR-DPRD-001-BAMBANG-GS2026',
+    attendancePin: '112001',   // PIN 6 digit untuk absensi mandiri
     statusActive: true
   },
   {
@@ -28,6 +30,7 @@ export const INITIAL_MEMBERS = [
     phone: '0813-1122-3344',
     email: 'sri.mulyani@dprd.go.id',
     qrToken: 'QR-DPRD-002-SRI-PDIP2026',
+    attendancePin: '210502',
     statusActive: true
   },
   {
@@ -41,6 +44,7 @@ export const INITIAL_MEMBERS = [
     phone: '0811-3344-5566',
     email: 'ahmad.muzani@dprd.go.id',
     qrToken: 'QR-DPRD-003-MUZANI-GERINDRA',
+    attendancePin: '031198',
     statusActive: true
   },
   {
@@ -54,6 +58,7 @@ export const INITIAL_MEMBERS = [
     phone: '0815-9988-7766',
     email: 'agus.harimurti@dprd.go.id',
     qrToken: 'QR-DPRD-004-AHY-DEMOKRAT',
+    attendancePin: '120804',
     statusActive: true
   },
   {
@@ -67,6 +72,7 @@ export const INITIAL_MEMBERS = [
     phone: '0817-4433-2211',
     email: 'anis.byarwati@dprd.go.id',
     qrToken: 'QR-DPRD-005-ANIS-PKS2026',
+    attendancePin: '140206',
     statusActive: true
   },
   {
@@ -80,6 +86,7 @@ export const INITIAL_MEMBERS = [
     phone: '0818-7766-5544',
     email: 'cucun.syamsurijal@dprd.go.id',
     qrToken: 'QR-DPRD-006-CUCUN-PKB2026',
+    attendancePin: '091002',
     statusActive: true
   },
   {
@@ -93,6 +100,7 @@ export const INITIAL_MEMBERS = [
     phone: '0819-2233-4455',
     email: 'ahmad.sahroni@dprd.go.id',
     qrToken: 'QR-DPRD-007-SAHRONI-NASDEM',
+    attendancePin: '080803',
     statusActive: true
   },
   {
@@ -106,6 +114,7 @@ export const INITIAL_MEMBERS = [
     phone: '0812-3456-7890',
     email: 'dedi.mulyadi@dprd.go.id',
     qrToken: 'QR-DPRD-008-DEDI-GERINDRA',
+    attendancePin: '170301',
     statusActive: true
   },
   {
@@ -119,6 +128,7 @@ export const INITIAL_MEMBERS = [
     phone: '0813-5566-7788',
     email: 'rieke.pitaloka@dprd.go.id',
     qrToken: 'QR-DPRD-009-RIEKE-PDIP2026',
+    attendancePin: '080107',
     statusActive: true
   },
   {
@@ -132,6 +142,7 @@ export const INITIAL_MEMBERS = [
     phone: '0811-6677-8899',
     email: 'desmond.mahesa@dprd.go.id',
     qrToken: 'QR-DPRD-010-DESMOND-GERINDRA',
+    attendancePin: '121294',
     statusActive: true
   }
 ];
@@ -139,118 +150,196 @@ export const INITIAL_MEMBERS = [
 export const INITIAL_ACTIVITIES = [
   {
     id: 'ACT-2026-001',
+    activityNumber: '005/PARIPURNA/DPRD/IX/2026',
     title: 'Rapat Paripurna Ke-12: Penyampaian LKPJ Kepala Daerah Tahun 2025',
     category: 'Paripurna',
-    date: '2026-09-07',
+    date: '2026-09-08',
     startTime: '09:00',
-    endTime: '12:30',
+    endTime: '13:00',
+    toleranceMinutes: 30,
+    qrToken: 'QR-ACT-2026-001-PARIPURNA-LKPJ',
     locationName: 'Ruang Rapat Paripurna Utama Gedung DPRD',
     targetLat: -6.200000,
     targetLng: 106.816666,
     radiusMeters: 150,
     status: 'ACTIVE',
     mandatoryTotal: 10,
-    description: 'Rapat Paripurna wajib diikuti oleh seluruh anggota DPRD sesuai amanat Tatib DPRD.'
+    description: 'Rapat Paripurna wajib diikuti oleh seluruh anggota DPRD dan dihadiri oleh jajaran Forkopimda serta OPD Pemerintah Daerah.',
+    invitedGuests: [
+      { id: 'GST-001', agency: 'Bupati / Sekretariat Daerah', invitedName: 'Sekretaris Daerah Kab. Cirebon', position: 'Sekretaris Daerah', email: 'setda@cirebonkab.go.id' },
+      { id: 'GST-002', agency: 'Bappelitbangda', invitedName: 'Kepala Bappelitbangda', position: 'Kepala Badan', email: 'bappeda@cirebonkab.go.id' },
+      { id: 'GST-003', agency: 'BKAD / Keuangan Daerah', invitedName: 'Kepala BKAD', position: 'Kepala Badan', email: 'bkad@cirebonkab.go.id' },
+      { id: 'GST-004', agency: 'Dinas Komunikasi & Informatika', invitedName: 'Kepala Diskominfo', position: 'Kepala Dinas', email: 'diskominfo@cirebonkab.go.id' }
+    ],
+    lpjSummary: {
+      notes: 'Rapat Paripurna berjalan lancar. Laporan Pertanggungjawaban Kepala Daerah Tahun 2025 diserahkan secara simbolis kepada Pimpinan DPRD untuk ditindaklanjuti pansus.',
+      documentationPhotos: [
+        'https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=600&auto=format&fit=crop&q=80',
+        'https://images.unsplash.com/photo-1577495508048-b635879837f1?w=600&auto=format&fit=crop&q=80'
+      ],
+      attachments: ['Surat Undangan No 005/120/DPRD/2026', 'Naskah Pidato Pengantar LKPJ 2025']
+    }
   },
   {
     id: 'ACT-2026-002',
+    activityNumber: '008/KOM-I/RDP/IX/2026',
     title: 'Rapat Dengar Pendapat (RDP) Komisi I Mengenai Evaluasi Perda Pelayanan Publik',
     category: 'Komisi',
-    date: '2026-09-07',
+    date: '2026-09-08',
     startTime: '13:30',
-    endTime: '16:00',
-    locationName: 'Ruang Rapat Komisi I DPRD',
+    endTime: '16:30',
+    toleranceMinutes: 20,
+    qrToken: 'QR-ACT-2026-002-KOMISI-I-RDP',
+    locationName: 'Ruang Rapat Komisi I Gedung DPRD',
     targetLat: -6.200150,
     targetLng: 106.816800,
     radiusMeters: 100,
     status: 'SCHEDULED',
     mandatoryTotal: 3,
-    description: 'Rapat pembahasan koordinasi bersama Dinas Kependudukan dan Pencatatan Sipil.'
+    description: 'Rapat pembahasan koordinasi bersama Dinas Kependudukan dan Pencatatan Sipil serta Bagian Hukum Setda.',
+    invitedGuests: [
+      { id: 'GST-005', agency: 'Dinas Kependudukan & Pencatatan Sipil', invitedName: 'Drs. H. Mohamad Syafrudin', position: 'Kepala Disdukcapil' },
+      { id: 'GST-006', agency: 'Bagian Hukum Setda', invitedName: 'Kabag Hukum Setda', position: 'Kepala Bagian' }
+    ],
+    lpjSummary: {
+      notes: '',
+      documentationPhotos: [],
+      attachments: []
+    }
   },
   {
     id: 'ACT-2026-003',
+    activityNumber: '002/BANMUS/DPRD/IX/2026',
     title: 'Rapat Badan Musyawarah (Banmus): Penetapan Agenda Rapat Paripurna Bulan September',
     category: 'Banmus',
     date: '2026-09-06',
     startTime: '10:00',
     endTime: '12:00',
+    toleranceMinutes: 30,
+    qrToken: 'QR-ACT-2026-003-BANMUS-JADWAL',
     locationName: 'Ruang Rapat Banmus DPRD',
     targetLat: -6.200000,
     targetLng: 106.816666,
     radiusMeters: 100,
     status: 'COMPLETED',
     mandatoryTotal: 10,
-    description: 'Penetapan jadwal kegiatan DPRD bulan berjalan.'
+    description: 'Penetapan jadwal sidang dan rapat komisi selama masa persidangan bulan September.',
+    invitedGuests: [
+      { id: 'GST-007', agency: 'Bagian Persidangan Setwan', invitedName: 'Kabag Persidangan & Perundang-undangan', position: 'Kepala Bagian' }
+    ],
+    lpjSummary: {
+      notes: 'Jadwal Masa Persidangan III Bulan September telah disahkan secara aklamasi oleh seluruh anggota Banmus yang hadir.',
+      documentationPhotos: [
+        'https://images.unsplash.com/photo-1517048676732-d65bc937f952?w=600&auto=format&fit=crop&q=80'
+      ],
+      attachments: ['Risalah Rapat Banmus 06 September 2026']
+    }
   },
   {
     id: 'ACT-2026-004',
+    activityNumber: '001/RESES-III/DPRD/IX/2026',
     title: 'Kegiatan Reses Masa Persidangan III Tahun 2026 (Dapil I)',
     category: 'Reses',
     date: '2026-09-04',
     startTime: '08:00',
     endTime: '17:00',
-    locationName: 'Kecamatan Coblong & Sumur Bandung',
+    toleranceMinutes: 60,
+    qrToken: 'QR-ACT-2026-004-RESES-DAPIL1',
+    locationName: 'Kecamatan Sumber & Weru',
     targetLat: -6.890000,
     targetLng: 107.610000,
     radiusMeters: 500,
     status: 'COMPLETED',
     mandatoryTotal: 10,
-    description: 'Penyerapan aspirasi masyarakat daerah pemilihan 1.'
+    description: 'Penyerapan aspirasi masyarakat daerah pemilihan 1.',
+    invitedGuests: [],
+    lpjSummary: {
+      notes: 'Tercatat 14 aspirasi prioritas warga terkait perbaikan drainase, jalan desa, dan beasiswa pendidikan.',
+      documentationPhotos: [
+        'https://images.unsplash.com/photo-1528605248644-14dd04022da1?w=600&auto=format&fit=crop&q=80'
+      ],
+      attachments: ['Rekapitulasi Pokok Pikiran (Pokpir) Dapil 1']
+    }
   },
   {
     id: 'ACT-2026-005',
+    activityNumber: '003/KUNKER/KOM-II/IX/2026',
     title: 'Kunjungan Kerja Komisi II Dalam Rangka Pengawasan Proyek Infrastruktur',
     category: 'Kunjungan Kerja',
     date: '2026-09-02',
     startTime: '09:00',
     endTime: '16:00',
-    locationName: 'Lokasi Proyek Waduk & Drainase Utama',
+    toleranceMinutes: 45,
+    qrToken: 'QR-ACT-2026-005-KUNKER-INFRA',
+    locationName: 'Lokasi Proyek Normalisasi Sungai & Irigasi',
     targetLat: -6.250000,
     targetLng: 106.850000,
     radiusMeters: 300,
     status: 'COMPLETED',
     mandatoryTotal: 10,
-    description: 'Studi lapangan penanganan banjir wilayah perkotaan.'
+    description: 'Studi lapangan penanganan banjir wilayah pertanian dan saluran irigasi primer.',
+    invitedGuests: [
+      { id: 'GST-008', agency: 'Dinas Pekerjaan Umum & Tata Ruang', invitedName: 'Kepala Dinas PUTR', position: 'Kepala Dinas' }
+    ],
+    lpjSummary: {
+      notes: 'Komisi II memberikan rekomendasi percepatan pengerjaan tanggul penahan tanah sebelum musim hujan tiba.',
+      documentationPhotos: [
+        'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=600&auto=format&fit=crop&q=80'
+      ],
+      attachments: ['Laporan Hasil Peninjauan Lapangan Kunker PUTR']
+    }
   }
 ];
 
 export const INITIAL_ATTENDANCE_LOGS = [
-  // Activity 1 (Paripurna hari ini)
+  // ── ACT-2026-001 (Paripurna Hari Ini) ──
   {
     id: 'ATT-101',
     activityId: 'ACT-2026-001',
+    participantType: 'INTERNAL', // 'INTERNAL' | 'EXTERNAL'
     memberId: 'DPRD-001',
-    timestamp: '2026-09-07T08:45:12+07:00',
+    memberName: 'H. Bambang Soesatyo, S.E., M.B.A.',
+    timestamp: '2026-09-08T08:45:12+07:00',
     status: 'Hadir',
-    method: 'QR_WEBCAM',
-    operatorName: 'Petugas Absensi - Rian (Laptop 01)',
+    method: 'QR_AGENDA',
+    deviceId: 'DEV-BB01-A128',
+    deviceType: 'Smartphone / Tablet',
+    operatorName: 'Mandiri (Mobile Scan)',
     lat: -6.200005,
     lng: 106.816660,
     distanceMeters: 8,
     proofPhoto: null,
-    note: 'Hadir tepat waktu melalui Webcam Scan'
+    note: 'Hadir tepat waktu melalui Scan QR Agenda'
   },
   {
     id: 'ATT-102',
     activityId: 'ACT-2026-001',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-002',
-    timestamp: '2026-09-07T08:52:30+07:00',
+    memberName: 'Dra. Hj. Sri Mulyani, M.Si.',
+    timestamp: '2026-09-08T08:52:30+07:00',
     status: 'Hadir',
     method: 'QR_WEBCAM',
+    deviceId: 'DEV-LAPTOP-OP01',
+    deviceType: 'Laptop / Desktop PC',
     operatorName: 'Petugas Absensi - Rian (Laptop 01)',
     lat: -6.200010,
     lng: 106.816670,
     distanceMeters: 12,
     proofPhoto: null,
-    note: 'Verifikasi visual QR match'
+    note: 'Verifikasi visual QR match di meja registrasi'
   },
   {
     id: 'ATT-103',
     activityId: 'ACT-2026-001',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-003',
-    timestamp: '2026-09-07T08:58:04+07:00',
+    memberName: 'Dr. H. Ahmad Muzani, S.H., M.H.',
+    timestamp: '2026-09-08T08:58:04+07:00',
     status: 'Hadir',
     method: 'GPS_ONLINE',
+    deviceId: 'DEV-MZ03-S22',
+    deviceType: 'Smartphone / Tablet',
     operatorName: 'Self Mobile App (Anggota)',
     lat: -6.200020,
     lng: 106.816650,
@@ -261,85 +350,142 @@ export const INITIAL_ATTENDANCE_LOGS = [
   {
     id: 'ATT-104',
     activityId: 'ACT-2026-001',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-004',
-    timestamp: '2026-09-07T09:15:22+07:00',
+    memberName: 'Ir. H. Agus Harimurti, M.Sc.',
+    timestamp: '2026-09-08T09:35:22+07:00',
     status: 'Terlambat',
-    method: 'QR_WEBCAM',
-    operatorName: 'Petugas Absensi - Rian (Laptop 01)',
+    method: 'QR_AGENDA',
+    deviceId: 'DEV-AHY-IP15',
+    deviceType: 'Smartphone / Tablet',
+    operatorName: 'Mandiri (Mobile Scan)',
     lat: -6.200000,
     lng: 106.816666,
-    distanceMeters: 0,
+    distanceMeters: 5,
     proofPhoto: null,
-    note: 'Hadir terlambat 15 menit karena pengawalan lalu lintas'
+    note: 'Terlambat 35 menit (melewati batas toleransi 30 menit)'
   },
   {
     id: 'ATT-105',
     activityId: 'ACT-2026-001',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-005',
-    timestamp: '2026-09-07T08:30:00+07:00',
-    status: 'Izin',
+    memberName: 'Hj. Anis Byarwati, S.Ag., M.Si.',
+    timestamp: '2026-09-08T08:30:00+07:00',
+    status: 'Dinas Luar',
     method: 'MANUAL_OVERRIDE',
     operatorName: 'Admin Sekretariat - Budi H.',
-    lat: null,
-    lng: null,
-    distanceMeters: null,
-    proofPhoto: null,
-    note: 'Surat Izin Resmi Nomor 045/BK-DPRD/IX/2026 (Tugas Pendampingan Kementerian)'
+    sptNumber: 'SPT.090/451/BK-DPRD/IX/2026',
+    sptFile: 'https://images.unsplash.com/photo-1618042164219-62c820f10723?w=500',
+    note: 'Tugas Konsultasi Ranperda ke Ditjen Otda Kemendagri Jakarta'
   },
   {
     id: 'ATT-106',
     activityId: 'ACT-2026-001',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-006',
-    timestamp: '2026-09-07T08:10:00+07:00',
+    memberName: 'H. Cucun Ahmad Syamsurijal, M.A.P.',
+    timestamp: '2026-09-08T08:10:00+07:00',
     status: 'Sakit',
     method: 'MANUAL_OVERRIDE',
     operatorName: 'Admin Sekretariat - Budi H.',
-    lat: null,
-    lng: null,
-    distanceMeters: null,
-    proofPhoto: null,
-    note: 'Surat Dokter Rawat Inap RSUD Kebayoran'
+    note: 'Surat Keterangan Rawat Inap RSUD'
   },
-  // Data histori kegiatan terdahulu (Banmus, Reses, Kunker)
+  // ── Peserta Eksternal / OPD / Tamu Undangan (Hanya masuk absensi & LPJ) ──
+  {
+    id: 'ATT-GST-01',
+    activityId: 'ACT-2026-001',
+    participantType: 'EXTERNAL',
+    guestId: 'GST-001',
+    agency: 'Sekretariat Daerah',
+    invitedName: 'Sekretaris Daerah Kab. Cirebon',
+    isRepresented: true,
+    representativeName: 'Drs. Hendra Permana, M.Si.',
+    representativePosition: 'Asisten Pemerintahan dan Kesra (Asda I)',
+    status: 'Diwakili',
+    method: 'GUEST_CHECKIN',
+    timestamp: '2026-09-08T08:40:15+07:00',
+    operatorName: 'Meja Tamu OPD',
+    note: 'Sekda berhalangan hadir memimpin rapat koordinasi darurat'
+  },
+  {
+    id: 'ATT-GST-02',
+    activityId: 'ACT-2026-001',
+    participantType: 'EXTERNAL',
+    guestId: 'GST-002',
+    agency: 'Bappelitbangda',
+    invitedName: 'Kepala Bappelitbangda',
+    isRepresented: false,
+    representativeName: null,
+    representativePosition: null,
+    status: 'Hadir',
+    method: 'GUEST_CHECKIN',
+    timestamp: '2026-09-08T08:50:00+07:00',
+    operatorName: 'Meja Tamu OPD',
+    note: 'Hadir langsung membawa naskah data pembangunan'
+  },
+  {
+    id: 'ATT-GST-03',
+    activityId: 'ACT-2026-001',
+    participantType: 'EXTERNAL',
+    guestId: 'GST-004',
+    agency: 'Dinas Komunikasi & Informatika',
+    invitedName: 'Kepala Diskominfo',
+    isRepresented: false,
+    representativeName: null,
+    representativePosition: null,
+    status: 'Hadir',
+    method: 'GUEST_CHECKIN',
+    timestamp: '2026-09-08T08:48:30+07:00',
+    operatorName: 'Meja Tamu OPD',
+    note: 'Hadir memfasilitasi live streaming persidangan'
+  },
+
+  // ── Data Histori Kegiatan Terdahulu (Banmus, Reses, Kunker) ──
   {
     id: 'ATT-201',
     activityId: 'ACT-2026-003',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-001',
+    memberName: 'H. Bambang Soesatyo, S.E., M.B.A.',
     timestamp: '2026-09-06T09:50:00+07:00',
     status: 'Hadir',
-    method: 'QR_WEBCAM',
-    operatorName: 'Petugas Laptop 02',
+    method: 'QR_AGENDA',
     distanceMeters: 10,
-    note: 'Hadir Banmus'
+    note: 'Hadir Banmus Tepat Waktu'
   },
   {
     id: 'ATT-202',
     activityId: 'ACT-2026-003',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-002',
+    memberName: 'Dra. Hj. Sri Mulyani, M.Si.',
     timestamp: '2026-09-06T09:55:00+07:00',
     status: 'Hadir',
-    method: 'QR_WEBCAM',
-    operatorName: 'Petugas Laptop 02',
+    method: 'QR_AGENDA',
     distanceMeters: 5,
-    note: 'Hadir Banmus'
+    note: 'Hadir Banmus Tepat Waktu'
   },
   {
     id: 'ATT-203',
     activityId: 'ACT-2026-003',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-007',
-    timestamp: '2026-09-06T10:30:00+07:00',
+    memberName: 'H. Ahmad Sahroni, S.E., M.I.Kom.',
+    timestamp: '2026-09-06T10:35:00+07:00',
     status: 'Terlambat',
-    method: 'QR_WEBCAM',
-    operatorName: 'Petugas Laptop 02',
+    method: 'QR_AGENDA',
     distanceMeters: 15,
-    note: 'Hadir Banmus'
+    note: 'Terlambat 35 menit'
   },
   {
     id: 'ATT-204',
     activityId: 'ACT-2026-003',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-008',
-    timestamp: '2026-09-06T00:00:00+07:00',
-    status: 'Tanpa Keterangan',
+    memberName: 'Drs. H. Dedi Mulyadi, S.H.',
+    timestamp: '2026-09-06T12:00:00+07:00',
+    status: 'Alpha',
     method: 'MANUAL_OVERRIDE',
     operatorName: 'System Auto-Closed',
     note: 'Tidak melakukan absensi hingga rapat selesai'
@@ -347,9 +493,11 @@ export const INITIAL_ATTENDANCE_LOGS = [
   {
     id: 'ATT-205',
     activityId: 'ACT-2026-003',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-010',
-    timestamp: '2026-09-06T00:00:00+07:00',
-    status: 'Tanpa Keterangan',
+    memberName: 'H. Desmond Junaidi Mahesa, S.H., M.H.',
+    timestamp: '2026-09-06T12:00:00+07:00',
+    status: 'Alpha',
     method: 'MANUAL_OVERRIDE',
     operatorName: 'System Auto-Closed',
     note: 'Tidak hadir tanpa konfirmasi'
@@ -357,31 +505,35 @@ export const INITIAL_ATTENDANCE_LOGS = [
   {
     id: 'ATT-301',
     activityId: 'ACT-2026-004',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-001',
+    memberName: 'H. Bambang Soesatyo, S.E., M.B.A.',
     timestamp: '2026-09-04T08:15:00+07:00',
     status: 'Hadir',
     method: 'GPS_ONLINE',
-    operatorName: 'Self Mobile App',
     distanceMeters: 45,
     note: 'Absensi Reses Dapil 1'
   },
   {
     id: 'ATT-302',
     activityId: 'ACT-2026-004',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-002',
+    memberName: 'Dra. Hj. Sri Mulyani, M.Si.',
     timestamp: '2026-09-04T08:20:00+07:00',
     status: 'Hadir',
     method: 'GPS_ONLINE',
-    operatorName: 'Self Mobile App',
     distanceMeters: 30,
     note: 'Absensi Reses Dapil 1'
   },
   {
     id: 'ATT-303',
     activityId: 'ACT-2026-004',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-008',
-    timestamp: '2026-09-04T00:00:00+07:00',
-    status: 'Tanpa Keterangan',
+    memberName: 'Drs. H. Dedi Mulyadi, S.H.',
+    timestamp: '2026-09-04T17:00:00+07:00',
+    status: 'Alpha',
     method: 'MANUAL_OVERRIDE',
     operatorName: 'System Auto-Closed',
     note: 'Tidak menginput absensi reses'
@@ -389,9 +541,11 @@ export const INITIAL_ATTENDANCE_LOGS = [
   {
     id: 'ATT-304',
     activityId: 'ACT-2026-004',
+    participantType: 'INTERNAL',
     memberId: 'DPRD-010',
-    timestamp: '2026-09-04T00:00:00+07:00',
-    status: 'Tanpa Keterangan',
+    memberName: 'H. Desmond Junaidi Mahesa, S.H., M.H.',
+    timestamp: '2026-09-04T17:00:00+07:00',
+    status: 'Alpha',
     method: 'MANUAL_OVERRIDE',
     operatorName: 'System Auto-Closed',
     note: 'Tidak menginput absensi reses'
@@ -401,31 +555,31 @@ export const INITIAL_ATTENDANCE_LOGS = [
 export const INITIAL_AUDIT_TRAILS = [
   {
     id: 'AUD-901',
-    timestamp: '2026-09-07T08:45:12+07:00',
-    userRole: 'Petugas Operator Laptop',
-    userName: 'Rian Hidayat (Operator Scan 01)',
-    action: 'SCAN_QR_SUCCESS',
-    details: 'Absensi Webcam QR Berhasil untuk DPRD-001 (H. Bambang Soesatyo, S.E., M.B.A.) pada Paripurna Ke-12',
+    timestamp: '2026-09-08T08:45:12+07:00',
+    userRole: 'Anggota DPRD',
+    userName: 'H. Bambang Soesatyo, S.E., M.B.A.',
+    action: 'SCAN_QR_AGENDA_SUCCESS',
+    details: 'Scan QR Agenda Paripurna Ke-12 Berhasil (Device ID: DEV-BB01-A128, Tepat Waktu)',
     ipAddress: '192.168.1.45',
-    method: 'QR_WEBCAM'
+    method: 'QR_AGENDA'
   },
   {
     id: 'AUD-902',
-    timestamp: '2026-09-07T08:30:00+07:00',
-    userRole: 'Admin Sekretariat',
-    userName: 'Budi Hartono, S.STP.',
-    action: 'MANUAL_ATTENDANCE_INPUT',
-    details: 'Input Absensi Manual [Izin] untuk DPRD-005 (Hj. Anis Byarwati) - Alasan: Tugas Pendampingan Kementerian',
-    ipAddress: '192.168.1.10',
-    method: 'MANUAL_OVERRIDE'
+    timestamp: '2026-09-08T08:40:15+07:00',
+    userRole: 'Tamu Eksternal / OPD',
+    userName: 'Drs. Hendra Permana, M.Si. (Mewakili Sekda)',
+    action: 'GUEST_CHECKIN_REPRESENTATIVE',
+    details: 'Check-in Delegasi Instansi Sekretariat Daerah untuk Paripurna Ke-12',
+    ipAddress: '192.168.1.50',
+    method: 'GUEST_CHECKIN'
   },
   {
     id: 'AUD-903',
-    timestamp: '2026-09-07T08:10:00+07:00',
+    timestamp: '2026-09-08T08:30:00+07:00',
     userRole: 'Admin Sekretariat',
     userName: 'Budi Hartono, S.STP.',
-    action: 'MANUAL_ATTENDANCE_INPUT',
-    details: 'Input Absensi Manual [Sakit] untuk DPRD-006 (H. Cucun Ahmad Syamsurijal) - Surat Dokter Lampiran Rawat Inap RSUD',
+    action: 'DINAS_LUAR_RECORDED',
+    details: 'Pencatatan Dinas Luar DPRD-005 (Hj. Anis Byarwati) dengan SPT No SPT.090/451/BK-DPRD/IX/2026',
     ipAddress: '192.168.1.10',
     method: 'MANUAL_OVERRIDE'
   },

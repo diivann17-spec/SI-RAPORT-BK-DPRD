@@ -8,4 +8,9 @@ export default defineConfig({
     react(),
     tailwindcss()
   ],
+  server: {
+    host: true,       // Expose ke semua network interface (LAN/WiFi) agar HP bisa scan QR
+    port: 5173,
+    strictPort: false,
+  },
 })

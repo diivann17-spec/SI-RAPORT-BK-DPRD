@@ -50,30 +50,43 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId }) 
 
     const cleanText = (decodedText || '').trim();
 
-    // 1. Cari member dengan helper getMemberByQR
-    let member = getMemberByQR(cleanText);
+    // 1. Ekstraksi jika QR berupa URL web presensi (?token= atau ?member= atau ?absen=)
+    let extractedToken = cleanText;
+    try {
+      if (cleanText.includes('http://') || cleanText.includes('https://') || cleanText.includes('?')) {
+        const urlObj = new URL(cleanText.startsWith('http') ? cleanText : window.location.origin + cleanText);
+        const urlToken = urlObj.searchParams.get('token') || urlObj.searchParams.get('member') || urlObj.searchParams.get('id');
+        if (urlToken) extractedToken = urlToken;
+      }
+    } catch (e) {}
 
-    // 2. Parse jika QR berupa format JSON
+    // 2. Cari member dengan helper getMemberByQR
+    let member = getMemberByQR(extractedToken) || getMemberByQR(cleanText);
+
+    // 3. Parse jika QR berupa format JSON
     if (!member) {
       try {
         const parsed = JSON.parse(cleanText);
         if (parsed.id) member = getMemberById(parsed.id);
         if (!member && parsed.qrToken) member = getMemberByQR(parsed.qrToken);
         if (!member && parsed.nip) member = members.find(m => m.nip === parsed.nip);
+        if (!member && parsed.memberId) member = getMemberById(parsed.memberId);
       } catch (e) { /* bukan JSON */ }
     }
 
-    // 3. Cari berdasarkan ID atau NIP langsung
+    // 4. Cari berdasarkan ID atau NIP langsung
     if (!member) {
       member = members.find(m =>
         m.id === cleanText ||
+        m.id === extractedToken ||
         m.nip === cleanText ||
-        (m.qrToken && cleanText.includes(m.qrToken)) ||
-        (m.qrToken && m.qrToken.includes(cleanText))
+        m.nip === extractedToken ||
+        (m.qrToken && (cleanText.includes(m.qrToken) || extractedToken.includes(m.qrToken))) ||
+        (m.qrToken && (m.qrToken.includes(cleanText) || m.qrToken.includes(extractedToken)))
       );
     }
 
-    // 4. Fuzzy match: jika token mengandung ID atau NIP anggota
+    // 5. Fuzzy match: jika token mengandung ID atau NIP anggota
     if (!member) {
       member = members.find(m =>
         cleanText.includes(m.id) ||
@@ -96,12 +109,13 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId }) 
       return;
     }
 
-    // Rekam absensi ke Firestore
+    // Rekam absensi ke Firestore (Webcam Petugas Meja Registrasi diizinkan scan kartu banyak anggota)
     const result = await recordAttendance({
       activityId: selectedActivity.id,
       memberId: member.id,
       method: 'QR_WEBCAM',
       operatorName: 'Petugas Laptop Webcam Scanner',
+      ignoreDeviceLock: true
     });
 
     if (result.success) {

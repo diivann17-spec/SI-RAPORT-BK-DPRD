@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAttendance } from '../context/AttendanceContext';
-import { getRaportCategory } from '../utils/raportUtils';
+import { getRaportCategory, getStatusBadge } from '../utils/raportUtils';
 import ERaportModal from '../components/ERaportModal';
 import dprdLogo from '../logo.png';
 import {
@@ -11,17 +11,16 @@ import {
   MapPin,
   CheckCircle2,
   AlertTriangle,
-  AlertOctagon,
   TrendingUp,
   FileSpreadsheet,
   Building2,
-  Bell,
   CreditCard,
   Printer,
   ChevronRight,
   ShieldCheck,
   Award,
-  Info
+  Smartphone,
+  Navigation
 } from 'lucide-react';
 
 export default function MemberPortal({ onNavigate }) {
@@ -43,7 +42,7 @@ export default function MemberPortal({ onNavigate }) {
   // Ambil data anggota saat ini
   const member = getMemberById(activeMemberId) || members.find(m => m.id === currentUser?.memberId) || members[0];
   const raport = member ? getMemberRaport(member.id, selectedCategory) : null;
-  const memberLogs = logs.filter(l => l.memberId === member?.id);
+  const memberLogs = logs.filter(l => l.memberId === member?.id && l.participantType !== 'EXTERNAL');
 
   if (!member) {
     return (
@@ -105,12 +104,12 @@ export default function MemberPortal({ onNavigate }) {
 
         {/* Quick Raport Badge */}
         {raport && (
-          <div className={`p-4 rounded-2xl border flex items-center gap-4 ${raport.categoryInfo.badgeBg} ${raport.categoryInfo.badgeBorder}`}>
+          <div className={`p-4 rounded-2xl border flex items-center gap-4 ${raport.categoryInfo.badgeClass}`}>
             <div className="text-right">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Tingkat Kehadiran</span>
               <span className={`text-2xl font-black ${raport.categoryInfo.textColor}`}>{raport.percentage}%</span>
             </div>
-            <div className={`w-10 h-10 rounded-xl ${raport.categoryInfo.bgColor} flex items-center justify-center text-white shadow`}>
+            <div className={`w-10 h-10 rounded-xl ${raport.categoryInfo.pillBg} flex items-center justify-center text-white shadow`}>
               <Award className="w-5 h-5" />
             </div>
           </div>
@@ -121,9 +120,9 @@ export default function MemberPortal({ onNavigate }) {
       <div className="flex gap-2 overflow-x-auto pb-1 border-b border-slate-200 dark:border-slate-800">
         {[
           { id: 'overview', label: '1. Dashboard Pribadi', icon: TrendingUp },
-          { id: 'schedule', label: '2. Jadwal Kegiatan', icon: Calendar, badge: upcomingActivities.length || null },
+          { id: 'schedule', label: '2. Jadwal Sidang', icon: Calendar, badge: upcomingActivities.length || null },
           { id: 'history', label: '3. Riwayat Kehadiran', icon: CheckCircle2 },
-          { id: 'raport', label: '4. E-Raport & Grafik', icon: FileSpreadsheet },
+          { id: 'raport', label: '4. E-Raport Kedisiplinan', icon: FileSpreadsheet },
           { id: 'profile', label: '5. Profil & ID Card', icon: CreditCard },
         ].map(tab => {
           const Icon = tab.icon;
@@ -153,32 +152,56 @@ export default function MemberPortal({ onNavigate }) {
       {/* ── TAB 1: DASHBOARD PRIBADI ── */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          {/* Status Kehadiran Indikator Warna */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-              <span className="text-xs font-bold text-slate-400">Total Agenda Rapat</span>
-              <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{activities.length} Kegiatan</p>
-              <span className="text-[11px] text-slate-500 mt-1 block">Tercatat di Sekretariat</span>
+          
+          {/* Quick Action Presensi Mandiri */}
+          {upcomingActivities.length > 0 && (
+            <div className="p-5 rounded-3xl bg-gradient-to-r from-emerald-900/80 via-teal-900/70 to-slate-900 border border-emerald-500/40 text-white shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/30 text-emerald-200 border border-emerald-400/40 uppercase">
+                  Agenda Sedang Berlangsung Hari Ini
+                </span>
+                <h3 className="font-extrabold text-base text-white">{upcomingActivities[0].title}</h3>
+                <p className="text-xs text-emerald-200/90">
+                  {upcomingActivities[0].startTime} - {upcomingActivities[0].endTime} WIB • {upcomingActivities[0].locationName}
+                </p>
+              </div>
+
+              <button
+                onClick={() => onNavigate && onNavigate('gps_mobile')}
+                className="w-full sm:w-auto px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg transition active:scale-95 shrink-0"
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Lakukan Presensi Lokasi GPS</span>
+              </button>
+            </div>
+          )}
+
+          {/* Metric Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <span className="text-xs font-bold text-slate-400 uppercase">Total Agenda Wajib</span>
+              <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{activities.length}</p>
+              <span className="text-[11px] text-slate-500 mt-0.5 block">Sidang Paripurna & Komisi</span>
             </div>
 
-            <div className="bg-emerald-50 dark:bg-emerald-950/40 p-5 rounded-2xl border border-emerald-200 dark:border-emerald-800/60 shadow-sm">
-              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Total Kehadiran</span>
-              <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{raport?.breakdown.hadir || 0} Rapat</p>
-              <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80 mt-1 block">Presensi Terverifikasi</span>
+            <div className="bg-emerald-50 dark:bg-emerald-950/40 p-5 rounded-3xl border border-emerald-200 dark:border-emerald-800/60 shadow-sm">
+              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 uppercase">Hadir Tepat Waktu</span>
+              <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{raport?.breakdown.hadir || 0}</p>
+              <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80 mt-0.5 block">Presensi Terverifikasi</span>
             </div>
 
-            <div className="bg-amber-50 dark:bg-amber-950/40 p-5 rounded-2xl border border-amber-200 dark:border-amber-800/60 shadow-sm">
-              <span className="text-xs font-bold text-amber-800 dark:text-amber-300">Izin / Sakit / Dinas</span>
+            <div className="bg-indigo-50 dark:bg-indigo-950/40 p-5 rounded-3xl border border-indigo-200 dark:border-indigo-800/60 shadow-sm">
+              <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase">Dinas Luar (SPT)</span>
+              <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">{raport?.breakdown.dinas || 0}</p>
+              <span className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 mt-0.5 block">Surat Tugas Resmi</span>
+            </div>
+
+            <div className="bg-amber-50 dark:bg-amber-950/40 p-5 rounded-3xl border border-amber-200 dark:border-amber-800/60 shadow-sm">
+              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase">Izin / Sakit / Telat</span>
               <p className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                {(raport?.breakdown.izin || 0) + (raport?.breakdown.sakit || 0) + (raport?.breakdown.dinas || 0)} Agenda
+                {(raport?.breakdown.terlambat || 0) + (raport?.breakdown.izin || 0) + (raport?.breakdown.sakit || 0)}
               </p>
-              <span className="text-[11px] text-amber-700/80 dark:text-amber-300/80 mt-1 block">Dengan Keterangan</span>
-            </div>
-
-            <div className="bg-rose-50 dark:bg-rose-950/40 p-5 rounded-2xl border border-rose-200 dark:border-rose-800/60 shadow-sm">
-              <span className="text-xs font-bold text-rose-800 dark:text-rose-300">Tanpa Keterangan</span>
-              <p className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">{raport?.breakdown.alpa || 0} Kali</p>
-              <span className="text-[11px] text-rose-700/80 dark:text-rose-300/80 mt-1 block">Evaluasi Khusus BK</span>
+              <span className="text-[11px] text-amber-700/80 dark:text-amber-300/80 mt-0.5 block">Dengan Keterangan</span>
             </div>
           </div>
         </div>
@@ -187,19 +210,19 @@ export default function MemberPortal({ onNavigate }) {
       {/* ── TAB 2: JADWAL KEGIATAN ── */}
       {activeTab === 'schedule' && (
         <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
             <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-3">Agenda Kegiatan & Rapat DPRD</h3>
             <div className="space-y-3">
               {activities.map(act => (
-                <div key={act.id} className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div key={act.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 text-[10px] font-bold">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold uppercase">
                         {act.category}
                       </span>
                       <h4 className="font-bold text-xs text-slate-900 dark:text-white">{act.title}</h4>
                     </div>
-                    <p className="text-[11px] text-slate-500">{act.date} • {act.startTime} - {act.endTime} WIB</p>
+                    <p className="text-[11px] text-slate-500">{act.date} • {act.startTime} - {act.endTime} WIB (Toleransi: {act.toleranceMinutes || 30}m)</p>
                     <p className="text-[11px] text-slate-400">{act.locationName}</p>
                   </div>
                   <span className={`px-2.5 py-1 rounded-full text-xs font-bold text-center ${
@@ -216,33 +239,37 @@ export default function MemberPortal({ onNavigate }) {
 
       {/* ── TAB 3: RIWAYAT KEHADIRAN ── */}
       {activeTab === 'history' && (
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-3">Riwayat Absensi Pribadi</h3>
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-3">Riwayat Presensi Pribadi</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left text-slate-600 dark:text-slate-300">
               <thead className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 uppercase font-bold">
                 <tr>
-                  <th className="p-3">Agenda</th>
+                  <th className="p-3">Agenda Sidang</th>
                   <th className="p-3">Waktu Presensi</th>
                   <th className="p-3">Status</th>
-                  <th className="p-3">Metode</th>
+                  <th className="p-3">Metode / Perangkat</th>
+                  <th className="p-3">Keterangan / SPT</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {activities.map(act => {
                   const log = memberLogs.find(l => l.activityId === act.id);
+                  const badge = log ? getStatusBadge(log.status) : getStatusBadge('alpha');
                   return (
                     <tr key={act.id}>
                       <td className="p-3 font-semibold text-slate-900 dark:text-white">{act.title}</td>
-                      <td className="p-3 font-mono">{log ? new Date(log.timestamp).toLocaleTimeString('id-ID') : '-'}</td>
+                      <td className="p-3 font-mono">{log ? new Date(log.timestamp).toLocaleTimeString('id-ID') : '-'} WIB</td>
                       <td className="p-3">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          log?.status === 'Hadir' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                        }`}>
-                          {log?.status || 'Tanpa Keterangan'}
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.bg}`}>
+                          {badge.label}
                         </span>
                       </td>
-                      <td className="p-3">{log?.method || 'SYSTEM'}</td>
+                      <td className="p-3 text-[11px]">{log?.method || 'SYSTEM'} ({log?.deviceType || 'Smartphone'})</td>
+                      <td className="p-3 text-[11px] text-slate-400">
+                        {log?.sptNumber && <span className="block font-bold text-indigo-400">{log.sptNumber}</span>}
+                        {log?.note || '-'}
+                      </td>
                     </tr>
                   );
                 })}
@@ -258,12 +285,12 @@ export default function MemberPortal({ onNavigate }) {
           <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Raport Kehadiran Anggota Dewan (F4)</h3>
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Raport Kehadiran Anggota Dewan</h3>
                 <p className="text-xs text-slate-400">Dokumen evaluasi resmi Badan Kehormatan (BK) DPRD Kabupaten Cirebon.</p>
               </div>
               <button
                 onClick={() => setIsRaportModalOpen(true)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow"
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl text-xs flex items-center gap-2 shadow"
               >
                 <FileSpreadsheet className="w-4 h-4" />
                 <span>Buka Lembar Raport Lengkap (F4)</span>
@@ -281,16 +308,16 @@ export default function MemberPortal({ onNavigate }) {
               <img
                 src={member.photo}
                 alt={member.name}
-                className="w-32 h-40 rounded-2xl object-cover border-4 border-blue-500 shadow-xl mx-auto"
+                className="w-32 h-40 rounded-2xl object-cover border-4 border-emerald-500 shadow-xl mx-auto"
               />
             ) : (
-              <div className="w-32 h-40 rounded-2xl bg-slate-800 border-4 border-blue-500 flex items-center justify-center text-4xl font-bold text-blue-400 mx-auto">
+              <div className="w-32 h-40 rounded-2xl bg-slate-800 border-4 border-emerald-500 flex items-center justify-center text-4xl font-bold text-emerald-400 mx-auto">
                 {member.name?.charAt(0)}
               </div>
             )}
             <div>
               <h3 className="font-extrabold text-lg text-slate-900 dark:text-white">{member.name}</h3>
-              <p className="text-xs text-blue-500 font-bold">{member.jabatan}</p>
+              <p className="text-xs text-emerald-500 font-bold">{member.jabatan}</p>
             </div>
 
             <div className="text-left text-xs space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
@@ -308,14 +335,14 @@ export default function MemberPortal({ onNavigate }) {
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
                 <span className="text-slate-400">Periode Jabatan:</span>
-                <span className="font-bold text-blue-500">2024 – 2029</span>
+                <span className="font-bold text-emerald-500">2024 – 2029</span>
               </div>
             </div>
           </div>
 
           <div className="lg:col-span-7 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <h3 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-blue-500" />
+              <CreditCard className="w-4 h-4 text-emerald-500" />
               Kartu QR Identitas Digital Resmi (Standar CR-80)
             </h3>
             <p className="text-xs text-slate-400">
@@ -363,7 +390,7 @@ export default function MemberPortal({ onNavigate }) {
             <div className="pt-2 flex flex-col sm:flex-row items-center gap-3 justify-center">
               <button
                 onClick={handleOpenFullCard}
-                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 hover:from-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
+                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 hover:from-emerald-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
               >
                 <Printer className="w-4 h-4" />
                 <span>Buka & Cetak Kartu Fisik Lengkap (Depan-Belakang)</span>
