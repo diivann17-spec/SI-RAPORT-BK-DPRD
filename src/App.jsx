@@ -66,7 +66,7 @@ function AppInner() {
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-20 md:pb-0">
-      
+
       {/* Navigation Navbar Header */}
       <Navbar onOpenMenu={() => setIsDrawerOpen(true)} />
 
@@ -97,15 +97,15 @@ function AppInner() {
         {/* Dynamic Main View Panel */}
         <main className="flex-1 min-w-0">
           {activeTab === 'member_portal' && <MemberPortal onNavigate={setActiveTab} />}
-          {activeTab === 'dashboard'     && <Dashboard onNavigate={setActiveTab} />}
-          {activeTab === 'webcam_scan'   && <AttendanceScan />}
-          {activeTab === 'gps_mobile'    && <GPSAttendance />}
-          {activeTab === 'member_qr'     && <MemberQRCard />}
-          {activeTab === 'raport'        && <RaportList />}
-          {activeTab === 'members'       && <MemberList onNavigate={setActiveTab} />}
-          {activeTab === 'activities'    && <ActivityList />}
-          {activeTab === 'audit'         && <AuditLogs />}
-          {activeTab === 'settings'      && <Settings />}
+          {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
+          {activeTab === 'webcam_scan' && <AttendanceScan />}
+          {activeTab === 'gps_mobile' && <GPSAttendance />}
+          {activeTab === 'member_qr' && <MemberQRCard />}
+          {activeTab === 'raport' && <RaportList />}
+          {activeTab === 'members' && <MemberList onNavigate={setActiveTab} />}
+          {activeTab === 'activities' && <ActivityList />}
+          {activeTab === 'audit' && <AuditLogs />}
+          {activeTab === 'settings' && <Settings />}
         </main>
       </div>
 

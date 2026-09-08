@@ -378,6 +378,18 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
           </div>
         )}
 
+        {/* ── QR Belum Dibuka / Menunggu Jam Mulai ── */}
+        {timeCalc.isNotStarted && selectedActivity && (
+          <div className="p-5 rounded-3xl bg-blue-950/60 border border-blue-700/50 text-center space-y-2">
+            <Clock className="w-8 h-8 text-cyan-400 mx-auto animate-pulse" />
+            <p className="font-black text-cyan-300">Absensi Belum Dibuka</p>
+            <p className="text-xs text-blue-200/80">
+              Agenda <strong>{selectedActivity.title}</strong> dijadwalkan mulai pukul <strong>{selectedActivity.startTime} WIB</strong>.
+              Proses presensi akan otomatis dibuka saat agenda dimulai ({timeCalc.minutesDiff} menit lagi).
+            </p>
+          </div>
+        )}
+
         {/* ── QR Expired ── */}
         {timeCalc.isExpired && selectedActivity && (
           <div className="p-5 rounded-3xl bg-rose-950/60 border border-rose-700/50 text-center space-y-2">
@@ -693,13 +705,23 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
               {/* ── Submit Button ── */}
               <button
                 type="submit"
-                disabled={isSubmitting || timeCalc.isExpired || alreadyCheckedIn}
+                disabled={isSubmitting || timeCalc.isNotStarted || timeCalc.isExpired || alreadyCheckedIn}
                 className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed text-white font-black rounded-2xl text-sm shadow-xl transition flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span>Memverifikasi Kehadiran...</span>
+                  </>
+                ) : timeCalc.isNotStarted ? (
+                  <>
+                    <Clock className="w-4 h-4" />
+                    <span>Absensi Belum Dibuka ({selectedActivity.startTime} WIB)</span>
+                  </>
+                ) : timeCalc.isExpired ? (
+                  <>
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>QR Code Telah Kedaluwarsa</span>
                   </>
                 ) : alreadyCheckedIn ? (
                   <>

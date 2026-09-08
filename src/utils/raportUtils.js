@@ -114,14 +114,28 @@ export function calculateAttendanceStatus(activity, scanDate = new Date()) {
     const toleranceDateTime = new Date(startDateTime.getTime() + tolerance * 60 * 1000);
     const endDateTime = new Date(year, month - 1, day, endH, endM, 0);
 
+    // Cek apakah agenda belum dimulai (QR Belum Aktif)
+    if (nowWib < startDateTime) {
+      const waitMins = Math.round((startDateTime - nowWib) / 60000);
+      return {
+        status: 'Belum Dibuka',
+        isNotStarted: true,
+        isExpired: false,
+        isLate: false,
+        minutesDiff: waitMins,
+        message: `Absensi belum dibuka. Agenda dimulai pukul ${activity.startTime || '08:00'} WIB (${waitMins} menit lagi).`
+      };
+    }
+
     // Cek apakah agenda sudah berakhir (QR Expired)
     if (nowWib > endDateTime) {
       return {
         status: 'Alpha',
+        isNotStarted: false,
         isExpired: true,
         isLate: true,
         minutesDiff: Math.round((nowWib - endDateTime) / 60000),
-        message: 'QR Code kegiatan sudah kedaluwarsa (Agenda telah berakhir).'
+        message: `QR Code kegiatan sudah kedaluwarsa (Agenda telah berakhir pukul ${activity.endTime || '16:00'} WIB).`
       };
     }
 
@@ -130,6 +144,7 @@ export function calculateAttendanceStatus(activity, scanDate = new Date()) {
       const lateMins = Math.round((nowWib - startDateTime) / 60000);
       return {
         status: 'Terlambat',
+        isNotStarted: false,
         isExpired: false,
         isLate: true,
         minutesDiff: lateMins,
@@ -139,13 +154,14 @@ export function calculateAttendanceStatus(activity, scanDate = new Date()) {
 
     return {
       status: 'Hadir',
+      isNotStarted: false,
       isExpired: false,
       isLate: false,
       minutesDiff: 0,
       message: 'Hadir tepat waktu.'
     };
   } catch (err) {
-    return { status: 'Hadir', isExpired: false, isLate: false, minutesDiff: 0, message: 'Status default' };
+    return { status: 'Hadir', isNotStarted: false, isExpired: false, isLate: false, minutesDiff: 0, message: 'Status default' };
   }
 }
 

@@ -93,6 +93,7 @@ export default function ActivityQRModal({ isOpen, onClose, activity }) {
   const endDateTime = new Date(actDate);
   endDateTime.setHours(endH, endM, 0, 0);
 
+  const isNotStarted = now < startDateTime;
   const isExpired = now > endDateTime;
   const isLateWindow = now > toleranceDateTime && now <= endDateTime;
   const isOntimeWindow = now >= startDateTime && now <= toleranceDateTime;
@@ -259,11 +260,13 @@ export default function ActivityQRModal({ isOpen, onClose, activity }) {
             </span>
           </div>
 
-          {/* QR Code Container — SELALU TAMPIL, tidak pernah diblur */}
+          {/* QR Code Container — Menyesuaikan Status Waktu Otomatis */}
           <div className={`p-5 sm:p-7 bg-white rounded-3xl shadow-2xl border-4 relative ${
-            isExpired ? 'border-rose-500/40'
+            isExpired ? 'border-rose-500/50'
+            : isNotStarted ? 'border-blue-500/50'
+            : isLateWindow ? 'border-amber-500/60'
             : needsLanIp ? 'border-amber-400/60'
-            : 'border-emerald-500/40'
+            : 'border-emerald-500/50'
           }`}>
             <QRCodeSVG
               value={qrValue}

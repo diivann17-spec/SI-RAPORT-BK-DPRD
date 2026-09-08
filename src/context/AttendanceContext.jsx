@@ -394,15 +394,24 @@ export function AttendanceProvider({ children }) {
         }
       }
 
-      // Validasi Keterlambatan Otomatis jika status tidak dioverride secara manual
+      // Validasi Waktu Otomatis (Belum Dimulai / Kedaluwarsa / Terlambat)
       let calculatedStatus = status;
       let diffNote = '';
-      if (!calculatedStatus) {
+      if (!calculatedStatus || method === 'QR_AGENDA' || method === 'QR_WEBCAM' || method === 'GPS_ONLINE') {
         const timeCalc = calculateAttendanceStatus(activity, new Date());
-        if (timeCalc.isExpired) {
-          return { success: false, message: 'Gagal: Masa aktif QR Code agenda telah berakhir (Kegiatan telah selesai).' };
+        if (timeCalc.isNotStarted && method !== 'MANUAL_OVERRIDE') {
+          return {
+            success: false,
+            message: `Absensi Gagal: ${timeCalc.message}`
+          };
         }
-        calculatedStatus = timeCalc.status;
+        if (timeCalc.isExpired && method !== 'MANUAL_OVERRIDE') {
+          return {
+            success: false,
+            message: `Absensi Gagal: QR Code kegiatan sudah kedaluwarsa. Agenda telah selesai pada pukul ${activity.endTime || '16:00'} WIB.`
+          };
+        }
+        calculatedStatus = calculatedStatus || timeCalc.status;
         diffNote = timeCalc.message;
       }
 
@@ -495,11 +504,22 @@ export function AttendanceProvider({ children }) {
         };
       }
 
-      // Validasi 1 Perangkat 1x Absensi per Agenda
-      const deviceCheck = validateDeviceSingleAttendance(activityId, currentGuestId, logs);
-      if (!deviceCheck.allowed) {
-        return { success: false, message: deviceCheck.message, isDeviceBlocked: true };
+      // Validasi Waktu Otomatis untuk Tamu OPD
+      const timeCalc = calculateAttendanceStatus(activity, new Date());
+      if (timeCalc.isNotStarted) {
+        return {
+          success: false,
+          message: `Absensi Tamu Gagal: ${timeCalc.message}`
+        };
       }
+      if (timeCalc.isExpired) {
+        return {
+          success: false,
+          message: `Absensi Tamu Gagal: Agenda telah selesai pada pukul ${activity.endTime || '16:00'} WIB.`
+        };
+      }
+
+      // Validasi 1 Perangkat 1x Absensi per Agenda
 
       // Validasi status perwakilan
       const finalStatus = isRepresented ? 'Diwakili' : status;
