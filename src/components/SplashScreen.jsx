@@ -2,39 +2,44 @@ import React, { useEffect, useState } from 'react';
 import { Sparkles, Shield } from 'lucide-react';
 import dprdLogo from '../logo.png';
 
-export default function SplashScreen({ onFinish, duration = 3000 }) {
+export default function SplashScreen({ onFinish, duration = 5000 }) {
   const [openingCurtain, setOpeningCurtain] = useState(false);
   const [fadeOutLogo, setFadeOutLogo] = useState(false);
   const [removeDOM, setRemoveDOM] = useState(false);
 
-  // Generate 55 butiran salju / kilau cahaya
+  // Generate 65 butiran kilau cahaya / partikel lembut
   const [snowflakes] = useState(() =>
-    Array.from({ length: 55 }, (_, i) => ({
+    Array.from({ length: 65 }, (_, i) => ({
       id: i,
       left: Math.random() * 100,
-      animationDuration: 2.0 + Math.random() * 2.8,
-      animationDelay: Math.random() * 1.2,
-      size: 3 + Math.random() * 6,
-      opacity: 0.4 + Math.random() * 0.6,
-      blur: Math.random() > 0.65 ? 'blur(1px)' : 'none',
+      animationDuration: 3.0 + Math.random() * 3.5,
+      animationDelay: Math.random() * 2.0,
+      size: 2.5 + Math.random() * 5.5,
+      opacity: 0.35 + Math.random() * 0.65,
+      blur: Math.random() > 0.6 ? 'blur(1px)' : 'none',
     }))
   );
 
   useEffect(() => {
-    // Total durasi = 3 detik (3000ms)
-    // Logo tayang & salju turun selama 1.7 detik pertama
-    const curtainTimer = setTimeout(() => {
+    // Total durasi = 5 detik (5000ms)
+    // Logo tayang anggun selama 2.8 detik pertama
+    const logoTimer = setTimeout(() => {
       setFadeOutLogo(true);
-      setOpeningCurtain(true);
-    }, 1700);
+    }, 2800);
 
-    // Di detik ke-3.0 (3000ms), animasi selesai gorden terbuka penuh dan aplikasi siap
+    // Gorden mulai terbuka pelan & halus di detik ke-3.0
+    const curtainTimer = setTimeout(() => {
+      setOpeningCurtain(true);
+    }, 3000);
+
+    // Di detik ke-5.0 (5000ms), transisi tuntas sepenuhnya
     const finishTimer = setTimeout(() => {
       setRemoveDOM(true);
       if (onFinish) onFinish();
-    }, 3000);
+    }, 5000);
 
     return () => {
+      clearTimeout(logoTimer);
       clearTimeout(curtainTimer);
       clearTimeout(finishTimer);
     };
@@ -46,7 +51,11 @@ export default function SplashScreen({ onFinish, duration = 3000 }) {
     <div className="fixed inset-0 z-50 pointer-events-none overflow-hidden select-none font-sans">
       
       {/* ─── VALANCE / KAIN GORDEN ATAS (TOP DRAPERY ROUCHES) ─── */}
-      <div className="absolute top-0 inset-x-0 h-10 sm:h-12 z-30 bg-gradient-to-b from-[#021f17] to-[#064e3b] shadow-2xl flex items-center justify-around border-b-2 border-amber-400/80 overflow-hidden">
+      <div 
+        className={`absolute top-0 inset-x-0 h-10 sm:h-12 z-30 bg-gradient-to-b from-[#021f17] to-[#064e3b] shadow-2xl flex items-center justify-around border-b-2 border-amber-400/80 overflow-hidden transition-opacity duration-1000 ${
+          openingCurtain ? 'opacity-0' : 'opacity-100'
+        }`}
+      >
         {/* Rumbai Emas / Tassel Trim */}
         <div className="absolute inset-x-0 bottom-0 h-1.5 bg-gradient-to-r from-amber-300 via-amber-500 to-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)]" />
         <div
@@ -61,12 +70,12 @@ export default function SplashScreen({ onFinish, duration = 3000 }) {
 
       {/* ─── SAYAP GORDEN KIRI (LEFT VELVET CURTAIN) ─── */}
       <div
-        className={`absolute top-0 bottom-0 left-0 w-1/2 z-20 curtain-velvet-left transition-transform duration-[1300ms] ease-[cubic-bezier(0.25,1,0.5,1)] flex items-center justify-end ${
+        className={`absolute top-0 bottom-0 left-0 w-1/2 z-20 curtain-velvet-left transition-transform duration-[1900ms] ease-[cubic-bezier(0.16,1,0.3,1)] flex items-center justify-end ${
           openingCurtain ? '-translate-x-full' : 'translate-x-0'
         }`}
       >
         {/* Lapisan Bayangan Lipatan Kain */}
-        <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-transparent to-black/30 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/50 via-transparent to-black/35 pointer-events-none" />
 
         {/* Tali Pengikat Gorden Emas (Sash) */}
         <div className="absolute left-6 top-1/2 -translate-y-1/2 w-16 h-8 rounded-full border-2 border-amber-400/70 bg-gradient-to-r from-amber-500/30 to-amber-600/40 shadow-lg blur-[0.5px]" />
@@ -77,7 +86,7 @@ export default function SplashScreen({ onFinish, duration = 3000 }) {
 
       {/* ─── SAYAP GORDEN KANAN (RIGHT VELVET CURTAIN) ─── */}
       <div
-        className={`absolute top-0 bottom-0 right-0 w-1/2 z-20 curtain-velvet-right transition-transform duration-[1300ms] ease-[cubic-bezier(0.25,1,0.5,1)] flex items-center justify-start ${
+        className={`absolute top-0 bottom-0 right-0 w-1/2 z-20 curtain-velvet-right transition-transform duration-[1900ms] ease-[cubic-bezier(0.16,1,0.3,1)] flex items-center justify-start ${
           openingCurtain ? 'translate-x-full' : 'translate-x-0'
         }`}
       >
@@ -88,11 +97,11 @@ export default function SplashScreen({ onFinish, duration = 3000 }) {
         <div className="absolute right-6 top-1/2 -translate-y-1/2 w-16 h-8 rounded-full border-2 border-amber-400/70 bg-gradient-to-l from-amber-500/30 to-amber-600/40 shadow-lg blur-[0.5px]" />
 
         {/* Lapisan Bayangan Lipatan Kain */}
-        <div className="absolute inset-0 bg-gradient-to-l from-black/40 via-transparent to-black/30 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-l from-black/50 via-transparent to-black/35 pointer-events-none" />
       </div>
 
       {/* ─── PERCIKAN BUTIRAN SALJU (SNOW PARTICLES) ─── */}
-      <div className="absolute inset-0 z-30 pointer-events-none overflow-hidden">
+      <div className={`absolute inset-0 z-30 pointer-events-none overflow-hidden transition-opacity duration-1000 ${fadeOutLogo ? 'opacity-0' : 'opacity-100'}`}>
         {snowflakes.map((flake) => (
           <div
             key={flake.id}
@@ -112,28 +121,28 @@ export default function SplashScreen({ onFinish, duration = 3000 }) {
 
       {/* ─── KONTEN LOGO & EMBLEM DI TENGAH PANGGUNG ─── */}
       <div
-        className={`absolute inset-0 z-40 flex flex-col items-center justify-center p-6 transition-all duration-700 ${
+        className={`absolute inset-0 z-40 flex flex-col items-center justify-center p-6 transition-all duration-1000 ease-out ${
           fadeOutLogo ? 'opacity-0 scale-95 blur-sm' : 'opacity-100 scale-100'
         }`}
       >
         {/* Lingkaran Lambang Emas DPRD & Logo Resmi */}
         <div className="relative mb-5 group">
           {/* Glowing Aura Effect */}
-          <div className="absolute -inset-8 bg-gradient-to-tr from-amber-500/40 via-emerald-400/30 to-amber-300/40 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute -inset-10 bg-gradient-to-tr from-amber-500/40 via-emerald-400/35 to-amber-300/40 rounded-full blur-3xl animate-pulse" />
 
           {/* Logo Resmi DPRD */}
           <div className="relative flex items-center justify-center">
             <img
               src={dprdLogo}
               alt="Logo DPRD"
-              className="w-32 h-32 sm:w-40 sm:h-40 object-contain drop-shadow-[0_15px_30px_rgba(0,0,0,0.9)] filter contrast-105 transition-transform duration-700 hover:scale-105"
+              className="w-32 h-32 sm:w-44 sm:h-44 object-contain drop-shadow-[0_15px_35px_rgba(0,0,0,0.95)] filter contrast-105 transition-transform duration-1000 hover:scale-105"
             />
           </div>
         </div>
 
         {/* System Title */}
         <div className="text-center space-y-2 max-w-lg">
-          <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-bold tracking-wider uppercase mb-1 shadow-md backdrop-blur-md">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-bold tracking-wider uppercase mb-1 shadow-md backdrop-blur-md">
             <Shield className="w-4 h-4 text-amber-400" />
             <span>Badan Kehormatan (BK)</span>
           </div>
@@ -149,8 +158,8 @@ export default function SplashScreen({ onFinish, duration = 3000 }) {
 
         {/* Loading Bar Animasi */}
         <div className="mt-8 flex flex-col items-center gap-2">
-          <div className="w-48 sm:w-56 h-1.5 bg-slate-900/90 rounded-full overflow-hidden border border-amber-400/30 shadow-inner">
-            <div className="h-full bg-gradient-to-r from-amber-400 via-emerald-400 to-amber-300 animate-[pulse_1.5s_infinite] w-full rounded-full" />
+          <div className="w-48 sm:w-60 h-1.5 bg-slate-900/90 rounded-full overflow-hidden border border-amber-400/30 shadow-inner">
+            <div className="h-full bg-gradient-to-r from-amber-400 via-emerald-400 to-amber-300 animate-[pulse_2s_infinite] w-full rounded-full" />
           </div>
           <span className="text-[11px] text-slate-300 font-medium tracking-wide">Mempersiapkan Ruang Sidang & Presensi...</span>
         </div>

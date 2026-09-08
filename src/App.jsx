@@ -15,6 +15,7 @@ import MemberPortal from './pages/MemberPortal';
 import AuditLogs from './pages/AuditLogs';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import SplashScreen from './components/SplashScreen';
 import { Loader2 } from 'lucide-react';
 
 // Inner app mengakses context
@@ -99,8 +100,11 @@ function AppInner() {
 }
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
   return (
     <AttendanceProvider>
+      {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
       <AppInner />
     </AttendanceProvider>
   );
