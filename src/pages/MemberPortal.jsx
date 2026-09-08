@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAttendance } from '../context/AttendanceContext';
 import { getRaportCategory, getStatusBadge } from '../utils/raportUtils';
 import ERaportModal from '../components/ERaportModal';
+import { AKD_CATEGORIES } from '../utils/akdUtils';
 import dprdLogo from '../logo.png';
 import {
   User,
@@ -175,6 +176,24 @@ export default function MemberPortal({ onNavigate }) {
               </button>
             </div>
           )}
+
+          {/* AKD Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+            <span className="text-[11px] font-bold text-slate-400 shrink-0 mr-1">Evaluasi AKD:</span>
+            {AKD_CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1 rounded-xl text-[10px] font-bold transition whitespace-nowrap shrink-0 ${
+                  selectedCategory === cat
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100'
+                }`}
+              >
+                {cat === 'ALL' ? 'Semua AKD' : cat}
+              </button>
+            ))}
+          </div>
 
           {/* Metric Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">

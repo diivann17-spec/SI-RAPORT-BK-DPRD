@@ -32,9 +32,14 @@ const KOMISI_LIST = [
   'Komisi III (Pembangunan & Infrastruktur)',
   'Komisi IV (Kesejahteraan Rakyat & Pendidikan)',
   'Badan Kehormatan (BK)',
+  'Badan Pembentukan Peraturan Daerah (Bapemperda)',
   'Badan Anggaran (Banggar)',
   'Badan Musyawarah (Banmus)',
-  'Badan Pembentukan Perda (Bapemperda)',
+  'Panitia Khusus (Pansus 1)',
+  'Panitia Khusus (Pansus 2)',
+  'Panitia Khusus (Pansus 3)',
+  'Panitia Khusus (Pansus 4)',
+  'Pimpinan DPRD',
 ];
 
 const EMPTY_FORM = {

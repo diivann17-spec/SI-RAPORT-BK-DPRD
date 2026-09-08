@@ -14,6 +14,8 @@ import {
   ChevronRight
 } from 'lucide-react';
 
+import { AKD_CATEGORIES } from '../utils/akdUtils';
+
 export default function RaportList() {
   const {
     members,
@@ -25,12 +27,13 @@ export default function RaportList() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedColor, setSelectedColor] = useState('ALL');
   const [selectedFraksi, setSelectedFraksi] = useState('ALL');
+  const [selectedAKD, setSelectedAKD] = useState('ALL');
   const [selectedPeriodMonth, setSelectedPeriodMonth] = useState('11'); // Default November
   const [activeModalMemberId, setActiveModalMemberId] = useState(null);
 
-  // Compute all member raports with selectedPeriodMonth
+  // Compute all member raports with selectedPeriodMonth and selectedAKD
   const memberRaports = members.map(m => {
-    const raport = getMemberRaport(m.id, 'ALL', selectedPeriodMonth);
+    const raport = getMemberRaport(m.id, selectedAKD, selectedPeriodMonth);
     const bkNote = bkNotes[m.id];
     return {
       member: m,
@@ -43,7 +46,7 @@ export default function RaportList() {
     const matchSearch =
       member.name.toLowerCase().includes(q) ||
       member.fraksi.toLowerCase().includes(q) ||
-      member.komisi.toLowerCase().includes(q);
+      (member.komisi && member.komisi.toLowerCase().includes(q));
 
     // Color filter
     const matchColor = selectedColor === 'ALL' || raport.categoryInfo.key === selectedColor;
@@ -106,7 +109,7 @@ export default function RaportList() {
 
       {/* Filter & Search Bar */}
       <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 sm:space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
           
           {/* Search Input */}
           <div className="relative">
@@ -120,20 +123,32 @@ export default function RaportList() {
             />
           </div>
 
+          {/* AKD Filter */}
+          <div>
+            <select
+              value={selectedAKD}
+              onChange={(e) => setSelectedAKD(e.target.value)}
+              className="w-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-emerald-600 dark:text-emerald-400"
+            >
+              {AKD_CATEGORIES.map(akd => (
+                <option key={akd} value={akd}>{akd === 'ALL' ? 'Semua AKD / Seluruh Agenda' : `Filter: ${akd}`}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Period Filter (Default: s.d November) */}
           <div className="flex items-center space-x-2">
-            <span className="text-[11px] font-bold text-slate-500 shrink-0">Periode:</span>
             <select
               value={selectedPeriodMonth}
               onChange={(e) => setSelectedPeriodMonth(e.target.value)}
-              className="w-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-emerald-600 dark:text-emerald-400"
+              className="w-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700 font-semibold"
             >
               <option value="11">s.d November 2026 (Jan - Nov)</option>
               <option value="12">s.d Desember 2026 (1 Tahun)</option>
               <option value="10">s.d Oktober 2026</option>
               <option value="9">s.d September 2026</option>
               <option value="6">s.d Juni 2026 (Semester 1)</option>
-              <option value="ALL">Semua Agenda</option>
+              <option value="ALL">Semua Periode</option>
             </select>
           </div>
 

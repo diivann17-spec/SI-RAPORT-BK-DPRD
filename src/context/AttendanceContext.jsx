@@ -303,7 +303,12 @@ export function AttendanceProvider({ children }) {
     const memberLogs = logs.filter(l => l.memberId === memberId && l.participantType !== 'EXTERNAL');
     let relevantActivities = categoryFilter === 'ALL'
       ? activities
-      : activities.filter(a => a.category === categoryFilter);
+      : activities.filter(a => {
+          if (!a.category) return false;
+          const aCat = a.category.toLowerCase();
+          const fCat = categoryFilter.toLowerCase();
+          return aCat === fCat || aCat.includes(fCat) || fCat.includes(aCat);
+        });
 
     if (maxMonth !== null && maxMonth !== undefined && maxMonth !== 'ALL') {
       const monthNum = parseInt(maxMonth, 10);

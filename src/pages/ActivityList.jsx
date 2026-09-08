@@ -10,29 +10,23 @@ import {
   ChevronRight, Building2, QrCode, FileSpreadsheet, UserPlus, Users
 } from 'lucide-react';
 
+import { AKD_LIST, AKD_CATEGORIES, AKD_BADGE_COLORS, matchAKDCategory } from '../utils/akdUtils';
+
 const EMPTY_FORM = {
   title: '',
-  category: 'Paripurna',
+  category: 'Komisi I',
+  akdOrganizer: 'Komisi I',
   activityNumber: '',
   date: new Date().toISOString().slice(0, 10),
   startTime: '09:00',
   endTime: '12:00',
   toleranceMinutes: 30,
-  locationName: 'Ruang Rapat Paripurna Utama Gedung DPRD',
+  locationName: 'Ruang Rapat Komisi I Gedung DPRD',
   targetLat: -6.200000,
   targetLng: 106.816666,
   radiusMeters: 150,
   description: '',
   status: 'ACTIVE',
-};
-
-const CATEGORY_COLORS = {
-  Paripurna: 'bg-emerald-950 text-emerald-300 border-emerald-800',
-  Komisi: 'bg-blue-950 text-blue-300 border-blue-800',
-  Banmus: 'bg-purple-950 text-purple-300 border-purple-800',
-  Banggar: 'bg-amber-950 text-amber-300 border-amber-800',
-  Reses: 'bg-cyan-950 text-cyan-300 border-cyan-800',
-  'Kunjungan Kerja': 'bg-rose-950 text-rose-300 border-rose-800',
 };
 
 export default function ActivityList() {
@@ -111,7 +105,7 @@ export default function ActivityList() {
 
   const filtered = filterCategory === 'ALL'
     ? activities
-    : activities.filter(a => a.category === filterCategory);
+    : activities.filter(a => matchAKDCategory(a.category, filterCategory));
 
   const getAttendanceMetrics = useCallback((activityId) => {
     const actLogs = logs.filter(l => l.activityId === activityId);
@@ -133,34 +127,35 @@ export default function ActivityList() {
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
-              Manajemen Terpadu
+              Struktur AKD Terpadu
             </span>
           </div>
-          <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white mt-1">Agenda & Jadwal Kegiatan</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Satu Agenda → Satu QR Code Khusus → Validasi GPS & Perangkat → LPJ Digital.</p>
+          <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white mt-1">Agenda & Jadwal Kegiatan AKD</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Komisi I-IV • BK • Bapemperda • Banggar • Banmus • Pansus 1-4 • Pimpinan • Paripurna</p>
         </div>
+
         <button
           onClick={openAdd}
-          className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 shrink-0"
+          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span>Buat Agenda Baru</span>
         </button>
       </div>
 
-      {/* Filter Categories Bar */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-        {['ALL', 'Paripurna', 'Komisi', 'Banmus', 'Banggar', 'Reses', 'Kunjungan Kerja'].map(cat => (
+      {/* Filter Categories AKD Bar */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-thin">
+        {AKD_CATEGORIES.map(cat => (
           <button
             key={cat}
             onClick={() => setFilterCategory(cat)}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition shrink-0 whitespace-nowrap ${
               filterCategory === cat
                 ? 'bg-emerald-600 text-white shadow-md'
                 : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            {cat === 'ALL' ? 'Semua Kategori' : cat}
+            {cat === 'ALL' ? 'Semua AKD' : cat}
           </button>
         ))}
       </div>
@@ -169,7 +164,7 @@ export default function ActivityList() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {filtered.map(activity => {
           const metrics = getAttendanceMetrics(activity.id);
-          const colorClass = CATEGORY_COLORS[activity.category] || 'bg-slate-800 text-slate-200 border-slate-700';
+          const colorClass = AKD_BADGE_COLORS[activity.category] || 'bg-slate-800 text-slate-200 border-slate-700';
 
           return (
             <div
@@ -364,18 +359,38 @@ export default function ActivityList() {
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-300 mb-1">Kategori Agenda:</label>
+                  <label className="block font-bold text-slate-300 mb-1">Penyelenggara / Kategori AKD:</label>
                   <select
                     value={formData.category}
                     onChange={e => handleChange('category', e.target.value)}
                     className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-200 text-xs font-bold"
                   >
-                    <option value="Paripurna">Paripurna</option>
-                    <option value="Komisi">Komisi</option>
-                    <option value="Banmus">Banmus</option>
-                    <option value="Banggar">Banggar</option>
-                    <option value="Reses">Reses</option>
-                    <option value="Kunjungan Kerja">Kunjungan Kerja</option>
+                    <optgroup label="Komisi-Komisi">
+                      <option value="Komisi I">Komisi I (Hukum & Pemerintahan)</option>
+                      <option value="Komisi II">Komisi II (Perekonomian & Keuangan)</option>
+                      <option value="Komisi III">Komisi III (Pembangunan & Infrastruktur)</option>
+                      <option value="Komisi IV">Komisi IV (Kesejahteraan Rakyat)</option>
+                    </optgroup>
+                    <optgroup label="Badan-Badan">
+                      <option value="Badan Kehormatan (BK)">Badan Kehormatan (BK)</option>
+                      <option value="Badan Pembentukan Peraturan Daerah (Bapemperda)">Bapemperda</option>
+                      <option value="Badan Anggaran (Banggar)">Badan Anggaran (Banggar)</option>
+                      <option value="Badan Musyawarah (Banmus)">Badan Musyawarah (Banmus)</option>
+                    </optgroup>
+                    <optgroup label="Panitia Khusus (Pansus)">
+                      <option value="Panitia Khusus (Pansus 1)">Pansus 1</option>
+                      <option value="Panitia Khusus (Pansus 2)">Pansus 2</option>
+                      <option value="Panitia Khusus (Pansus 3)">Pansus 3</option>
+                      <option value="Panitia Khusus (Pansus 4)">Pansus 4</option>
+                    </optgroup>
+                    <optgroup label="Pimpinan & Paripurna">
+                      <option value="Pimpinan DPRD">Pimpinan DPRD</option>
+                      <option value="Rapat Paripurna">Rapat Paripurna (Seluruh Anggota)</option>
+                    </optgroup>
+                    <optgroup label="Kegiatan Lainnya">
+                      <option value="Reses">Reses / Kunjungan Dapil</option>
+                      <option value="Kunjungan Kerja">Kunjungan Kerja (Kunker)</option>
+                    </optgroup>
                   </select>
                 </div>
               </div>

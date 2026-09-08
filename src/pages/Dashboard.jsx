@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
 import { getRaportCategory, formatLiveTimestamp } from '../utils/raportUtils';
+import { AKD_CATEGORIES, AKD_BADGE_COLORS } from '../utils/akdUtils';
 import {
   Users,
   CheckCircle,
@@ -258,25 +259,25 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </div>
 
-      {/* Filter Bar per Activity Category */}
+      {/* Filter Bar per AKD Category */}
       <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
         <div className="flex items-center space-x-2 text-slate-600 dark:text-slate-400 font-semibold shrink-0">
           <Filter className="w-4 h-4 text-emerald-600" />
-          <span className="hidden sm:inline">Filter Evaluasi Rapat:</span>
-          <span className="sm:hidden">Filter:</span>
+          <span className="hidden sm:inline">Evaluasi per AKD:</span>
+          <span className="sm:hidden">AKD:</span>
         </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto pl-2">
-          {['ALL', 'Paripurna', 'Komisi', 'Banmus', 'Reses', 'Kunjungan Kerja'].map(cat => (
+        <div className="flex items-center gap-1.5 overflow-x-auto pl-2 scrollbar-thin">
+          {AKD_CATEGORIES.map(cat => (
             <button
               key={cat}
               onClick={() => setCategoryFilter(cat)}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-lg font-medium transition text-[11px] sm:text-xs whitespace-nowrap shrink-0 ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg font-bold transition text-[11px] sm:text-xs whitespace-nowrap shrink-0 ${
                 categoryFilter === cat
                   ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              {cat === 'ALL' ? 'Semua Kegiatan' : cat}
+              {cat === 'ALL' ? 'Semua AKD' : cat}
             </button>
           ))}
         </div>

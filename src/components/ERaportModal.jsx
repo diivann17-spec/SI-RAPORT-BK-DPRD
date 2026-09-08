@@ -49,8 +49,14 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
 
   const memberLogs = logs.filter(l => l.memberId === memberId);
 
-  // Group activities by category for category-wise raport breakdown
-  const categories = ['Paripurna', 'Komisi', 'Banmus', 'Reses', 'Kunjungan Kerja'];
+  // Group activities by category for category-wise raport breakdown (Struktur AKD)
+  const categories = [
+    'Komisi I', 'Komisi II', 'Komisi III', 'Komisi IV',
+    'Badan Kehormatan (BK)', 'Badan Anggaran (Banggar)',
+    'Badan Musyawarah (Banmus)', 'Badan Pembentukan Peraturan Daerah (Bapemperda)',
+    'Panitia Khusus (Pansus 1)', 'Panitia Khusus (Pansus 2)', 'Panitia Khusus (Pansus 3)', 'Panitia Khusus (Pansus 4)',
+    'Pimpinan DPRD', 'Rapat Paripurna'
+  ];
 
   const handleSaveNote = () => {
     saveBKNote(memberId, noteText, warningStatus);

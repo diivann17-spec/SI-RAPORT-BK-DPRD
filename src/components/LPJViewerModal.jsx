@@ -111,8 +111,8 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                 <span className="font-bold text-white print:text-black">{activity.title}</span>
               </div>
               <div>
-                <span className="text-slate-400 print:text-gray-500 block text-[11px]">Kategori & Sifat:</span>
-                <span className="font-bold text-white print:text-black">Sidang / Rapat {activity.category}</span>
+                <span className="text-slate-400 print:text-gray-500 block text-[11px]">Penyelenggara / AKD:</span>
+                <span className="font-bold text-emerald-400 print:text-black">{activity.category || 'Alat Kelengkapan DPRD'}</span>
               </div>
               <div>
                 <span className="text-slate-400 print:text-gray-500 block text-[11px]">Waktu Pelaksanaan:</span>
