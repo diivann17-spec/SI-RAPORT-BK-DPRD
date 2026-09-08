@@ -6,13 +6,7 @@ import {
 import { db } from '../firebase/config';
 import { getRaportCategory, calculateAttendanceStatus } from '../utils/raportUtils';
 import { getDeviceFingerprint, validateDeviceSingleAttendance } from '../utils/deviceUtils';
-import {
-  INITIAL_MEMBERS,
-  INITIAL_ACTIVITIES,
-  INITIAL_ATTENDANCE_LOGS,
-  INITIAL_AUDIT_TRAILS,
-  INITIAL_BK_NOTES
-} from '../firebase/mockData';
+// Mock data dihapus — app mulai kosong, data dari Firestore / input manual
 
 const AttendanceContext = createContext();
 
@@ -29,40 +23,40 @@ export function AttendanceProvider({ children }) {
   const [members, setMembers] = useState(() => {
     try {
       const stored = localStorage.getItem('siraport_members');
-      return stored ? JSON.parse(stored) : INITIAL_MEMBERS;
+      return stored ? JSON.parse(stored) : [];
     } catch (e) {
-      return INITIAL_MEMBERS;
+      return [];
     }
   });
 
   const [activities, setActivities] = useState(() => {
     try {
       const stored = localStorage.getItem('siraport_activities');
-      return stored ? JSON.parse(stored) : INITIAL_ACTIVITIES;
+      return stored ? JSON.parse(stored) : [];
     } catch (e) {
-      return INITIAL_ACTIVITIES;
+      return [];
     }
   });
 
   const [logs, setLogs] = useState(() => {
     try {
       const stored = localStorage.getItem('siraport_logs');
-      return stored ? JSON.parse(stored) : INITIAL_ATTENDANCE_LOGS;
+      return stored ? JSON.parse(stored) : [];
     } catch (e) {
-      return INITIAL_ATTENDANCE_LOGS;
+      return [];
     }
   });
 
   const [auditLogs, setAuditLogs] = useState(() => {
     try {
       const stored = localStorage.getItem('siraport_audit');
-      return stored ? JSON.parse(stored) : INITIAL_AUDIT_TRAILS;
+      return stored ? JSON.parse(stored) : [];
     } catch (e) {
-      return INITIAL_AUDIT_TRAILS;
+      return [];
     }
   });
 
-  const [bkNotes, setBkNotes] = useState(INITIAL_BK_NOTES);
+  const [bkNotes, setBkNotes] = useState({});
   const [loading, setLoading] = useState(false);
 
   // Sync to localStorage
@@ -199,13 +193,8 @@ export function AttendanceProvider({ children }) {
           if (!localStorage.getItem('siraport_active_member_id') && data.length > 0) {
             setActiveMemberId(data[0].id);
           }
-        } else {
-          // Auto-seed members jika Firestore masih kosong
-          INITIAL_MEMBERS.forEach(m => {
-            const { id, ...mData } = m;
-            setDoc(doc(db, COL.MEMBERS, id), { ...mData, createdAt: serverTimestamp() }, { merge: true }).catch(() => {});
-          });
         }
+        // Firestore kosong = belum ada data, user perlu input manual
       }, err => console.warn('Firestore members fallback:', err.message)));
 
       // 2. Listen Activities
@@ -214,13 +203,8 @@ export function AttendanceProvider({ children }) {
           const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
           data.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
           setActivities(data);
-        } else {
-          // Auto-seed activities jika Firestore masih kosong
-          INITIAL_ACTIVITIES.forEach(a => {
-            const { id, ...aData } = a;
-            setDoc(doc(db, COL.ACTIVITIES, id), { ...aData, createdAt: serverTimestamp() }, { merge: true }).catch(() => {});
-          });
         }
+        // Firestore kosong = belum ada kegiatan, user perlu buat baru
       }, err => console.warn('Firestore activities fallback:', err.message)));
 
       // 3. Listen Attendance Logs (Cross-Device Realtime Sync)
@@ -254,13 +238,8 @@ export function AttendanceProvider({ children }) {
             try { localStorage.setItem('siraport_logs', JSON.stringify(merged)); } catch (e) {}
             return merged;
           });
-        } else {
-          // Auto-seed initial attendance logs jika Firestore kosong
-          INITIAL_ATTENDANCE_LOGS.forEach(l => {
-            const { id, ...lData } = l;
-            setDoc(doc(db, COL.LOGS, id), { ...lData, createdAt: serverTimestamp() }, { merge: true }).catch(() => {});
-          });
         }
+        // Firestore kosong = belum ada log absensi
       }, err => console.warn('Firestore logs fallback:', err.message)));
 
       // 4. Listen Audit Logs
@@ -957,6 +936,42 @@ export function AttendanceProvider({ children }) {
     } catch (e) { console.error('saveBKNote:', e); }
   };
 
+  // ─── Reset / Clear Seluruh Data (Hapus Mock dari LocalStorage & Firestore) ────
+  const clearAllData = async () => {
+    try {
+      // 1. Bersihkan state lokal
+      setMembers([]);
+      setActivities([]);
+      setLogs([]);
+      setAuditLogs([]);
+      setBkNotes({});
+
+      // 2. Bersihkan localStorage
+      localStorage.removeItem('siraport_members');
+      localStorage.removeItem('siraport_activities');
+      localStorage.removeItem('siraport_logs');
+      localStorage.removeItem('siraport_audit');
+      localStorage.removeItem('siraport_active_member_id');
+
+      // 3. Bersihkan dokumen di Firestore jika terhubung
+      try {
+        const collectionsToClear = [COL.MEMBERS, COL.ACTIVITIES, COL.LOGS, COL.AUDIT, COL.BK_NOTES];
+        for (const colName of collectionsToClear) {
+          const snap = await getDocs(collection(db, colName));
+          const deletePromises = snap.docs.map(d => deleteDoc(doc(db, colName, d.id)));
+          await Promise.all(deletePromises);
+        }
+      } catch (e) {
+        console.warn('Gagal membersihkan dokumen Firestore:', e);
+      }
+
+      return { success: true };
+    } catch (err) {
+      console.error('Error clearAllData:', err);
+      return { success: false, message: err.message };
+    }
+  };
+
   return (
     <AttendanceContext.Provider value={{
       members, activities, logs, auditLogs, bkNotes,
@@ -972,6 +987,8 @@ export function AttendanceProvider({ children }) {
       addActivity, updateActivity, deleteActivity, clearActivityAttendance,
       verifyMemberPin, updateMemberPin,
       logAudit,
+      clearAllData,
+      resetSystemData: clearAllData,
     }}>
       {children}
     </AttendanceContext.Provider>

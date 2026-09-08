@@ -3,13 +3,6 @@ import { useAttendance } from '../context/AttendanceContext';
 import { firebaseConfig } from '../firebase/config';
 import { seedFirestoreFromMockData } from '../firebase/firestoreService';
 import {
-  INITIAL_MEMBERS,
-  INITIAL_ACTIVITIES,
-  INITIAL_ATTENDANCE_LOGS,
-  INITIAL_AUDIT_TRAILS,
-  INITIAL_BK_NOTES
-} from '../firebase/mockData';
-import {
   Settings as SettingsIcon,
   Database,
   Key,
@@ -196,26 +189,26 @@ service cloud.firestore {
 }`}</pre>
       </div>
 
-      {/* Reset Data Demo */}
+      {/* Reset & Hapus Seluruh Data Mock */}
       <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-rose-200 dark:border-rose-900/50 shadow-sm space-y-3">
         <div className="flex items-center space-x-2 text-rose-600 dark:text-rose-400 font-bold text-sm">
           <RefreshCw className="w-5 h-5" />
-          <span>Reset Data Lokal ke Kondisi Awal Demo</span>
+          <span>Hapus & Bersihkan Seluruh Data Mock (Lokal & Firestore)</span>
         </div>
         <p className="text-xs text-slate-500">
-          Kembalikan seluruh data lokal (anggota, agenda, absensi, audit) ke dataset demo awal. Data di Firestore <strong>tidak terpengaruh</strong>.
+          Hapus permanen seluruh data lama/mock (anggota, agenda rapat, riwayat absensi, catatan BK) dari <strong>LocalStorage</strong> dan <strong>Cloud Firestore</strong> sehingga aplikasi benar-benar bersih/kosong.
         </p>
         <button
-          onClick={() => {
-            if (window.confirm('Reset seluruh data lokal ke kondisi awal demo?')) {
-              resetSystemData();
-              alert('✅ Data lokal berhasil di-reset!');
+          onClick={async () => {
+            if (window.confirm('Yakin ingin MENGHAPUS SEMUA data mock/demo dari browser dan Firestore?')) {
+              await resetSystemData();
+              alert('✅ Seluruh data mock berhasil dihapus total!');
             }
           }}
-          className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow"
+          className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow cursor-pointer"
         >
           <RefreshCw className="w-4 h-4" />
-          <span>Reset Data Lokal Demo</span>
+          <span>Hapus Total Semua Data Mock</span>
         </button>
       </div>
 
