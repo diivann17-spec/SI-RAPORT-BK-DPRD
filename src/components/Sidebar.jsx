@@ -10,11 +10,12 @@ import {
   ShieldCheck,
   Settings,
   CreditCard,
-  AlertTriangle
+  AlertTriangle,
+  LogOut
 } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab }) {
-  const { currentRole, logs, activities, members } = useAttendance();
+  const { currentRole, logs, activities, members, logout } = useAttendance();
 
   // Count active warnings for badge indicator
   const redCount = members.filter(m => {
@@ -158,6 +159,21 @@ export default function Sidebar({ activeTab, setActiveTab }) {
             </button>
           </div>
         )}
+
+        {/* Sidebar Footer: Quick Logout */}
+        <div className="pt-4 mt-6 border-t border-slate-800">
+          <button
+            onClick={() => {
+              if (window.confirm('Keluar dari sesi SI-RAPORT?')) {
+                logout();
+              }
+            }}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-rose-950/50 hover:bg-rose-900/80 border border-rose-900/60 text-rose-300 hover:text-white text-xs font-semibold transition"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Logout Sesi</span>
+          </button>
+        </div>
 
       </div>
     </aside>

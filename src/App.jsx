@@ -37,14 +37,18 @@ function AppInner() {
     }
   });
 
-  // Sync tab when switching roles
-  React.useEffect(() => {
+  // Sinkronisasi activeTab otomatis sesuai hak akses / role saat login
+  useEffect(() => {
+    if (!currentUser) return;
     if (currentRole === 'ANGGOTA_DPRD') {
       setActiveTab('member_portal');
-    } else if (activeTab === 'member_portal') {
+    } else if (currentRole === 'PETUGAS_SCAN') {
+      setActiveTab('webcam_scan');
+    } else {
+      // SECRETARIAT_ADMIN / PETUGAS_BK
       setActiveTab('dashboard');
     }
-  }, [currentRole]);
+  }, [currentUser, currentRole]);
 
   // Jika membuka dari QR Code Agenda langsung (Google Lens / Kamera HP tanpa login wajib)
   if (scannedActivityId) {

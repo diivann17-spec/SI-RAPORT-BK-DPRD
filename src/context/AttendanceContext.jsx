@@ -114,21 +114,9 @@ export function AttendanceProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const stored = localStorage.getItem('siraport_user');
-      return stored ? JSON.parse(stored) : {
-        role: 'PETUGAS_BK',
-        username: 'bk_dprd',
-        name: 'Badan Kehormatan (BK)',
-        memberId: 'DPRD-003',
-        roleLabel: 'Badan Kehormatan (BK)'
-      };
+      return stored ? JSON.parse(stored) : null;
     } catch (e) {
-      return {
-        role: 'PETUGAS_BK',
-        username: 'bk_dprd',
-        name: 'Badan Kehormatan (BK)',
-        memberId: 'DPRD-003',
-        roleLabel: 'Badan Kehormatan (BK)'
-      };
+      return null;
     }
   });
 
@@ -139,15 +127,17 @@ export function AttendanceProvider({ children }) {
     () => currentUser?.memberId || localStorage.getItem('siraport_active_member_id') || 'DPRD-001'
   );
 
-  useEffect(() => { localStorage.setItem('siraport_role', currentRole); }, [currentRole]);
-  useEffect(() => { localStorage.setItem('siraport_active_member_id', activeMemberId); }, [activeMemberId]);
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('siraport_user', JSON.stringify(currentUser));
+      localStorage.setItem('siraport_role', currentRole);
+      localStorage.setItem('siraport_active_member_id', activeMemberId);
     } else {
       localStorage.removeItem('siraport_user');
+      localStorage.removeItem('siraport_role');
+      localStorage.removeItem('siraport_active_member_id');
     }
-  }, [currentUser]);
+  }, [currentUser, currentRole, activeMemberId]);
 
   // Login handler
   const login = ({ role, username, name, memberId }) => {
@@ -155,12 +145,21 @@ export function AttendanceProvider({ children }) {
       role: role || 'PETUGAS_BK',
       username: username || 'user',
       name: name || username || 'Pengguna',
-      memberId: memberId || activeMemberId || 'DPRD-001',
+      memberId: memberId || 'DPRD-001',
+      roleLabel: role === 'SECRETARIAT_ADMIN' ? 'Admin Sekretariat DPRD' :
+                 role === 'PETUGAS_BK' ? 'Badan Kehormatan (BK)' :
+                 role === 'PETUGAS_SCAN' ? 'Operator Laptop Presensi' : 'Anggota Dewan (DPRD)',
       loginAt: new Date().toISOString()
     };
     setCurrentUser(userObj);
     setCurrentRole(userObj.role);
     if (memberId) setActiveMemberId(memberId);
+    
+    // Simpan segera ke localStorage
+    localStorage.setItem('siraport_user', JSON.stringify(userObj));
+    localStorage.setItem('siraport_role', userObj.role);
+    if (memberId) localStorage.setItem('siraport_active_member_id', memberId);
+
     logAudit({
       action: 'USER_LOGIN',
       details: `Login berhasil: ${userObj.name} (${userObj.role})`,
@@ -168,7 +167,7 @@ export function AttendanceProvider({ children }) {
     });
   };
 
-  // Logout handler
+  // Logout handler — Pembersihan Menyeluruh Sesi Login
   const logout = () => {
     if (currentUser) {
       logAudit({
@@ -177,7 +176,18 @@ export function AttendanceProvider({ children }) {
         method: 'LOCAL_SIMULATION'
       });
     }
+
+    // 1. Reset state
     setCurrentUser(null);
+    setCurrentRole('PETUGAS_BK');
+    setActiveMemberId('DPRD-001');
+
+    // 2. Hapus seluruh data autentikasi dari localStorage
+    try {
+      localStorage.removeItem('siraport_user');
+      localStorage.removeItem('siraport_role');
+      localStorage.removeItem('siraport_active_member_id');
+    } catch (e) {}
   };
 
   // ─── Realtime Firestore listeners with auto-seed and robust multi-device sync ───
