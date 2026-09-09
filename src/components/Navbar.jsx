@@ -13,7 +13,7 @@ import {
   Bell
 } from 'lucide-react';
 
-export default function Navbar({ onOpenMenu }) {
+export default function Navbar({ onOpenMenu, onOpenNotifications }) {
   const {
     currentRole,
     setCurrentRole,
@@ -50,7 +50,7 @@ export default function Navbar({ onOpenMenu }) {
 
   return (
     <header className="no-print bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-lg">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+      <div className="max-w-[1500px] mx-auto px-3 sm:px-6 lg:px-8 xl:px-10">
         <div className="flex items-center justify-between h-14 sm:h-16">
           
           {/* Left: Mobile Hamburger Menu & Brand Logo */}
@@ -93,7 +93,7 @@ export default function Navbar({ onOpenMenu }) {
             {/* Notification Bell with Badge (Mobile & Desktop) */}
             <div className="relative">
               <button
-                onClick={onOpenMenu}
+                onClick={onOpenNotifications}
                 className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700/60 transition"
                 title="Notifikasi & Peringatan Dini"
               >

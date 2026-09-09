@@ -15,7 +15,7 @@ export default function GPSAttendance() {
     activeMemberId, setActiveMemberId,
     getMemberById, members,
     activities, logs,
-    recordAttendance, loading
+    recordAttendance, checkoutAttendance, loading
   } = useAttendance();
 
   const activeMember = getMemberById(activeMemberId);
@@ -30,6 +30,8 @@ export default function GPSAttendance() {
   }, [activities]);
 
   const selectedActivity = activities.find(a => a.id === selectedActivityId);
+  const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
+  const participantMembers = members.filter(member => participantIds.includes(member.id));
   const existingLog = logs.find(l =>
     l.activityId === selectedActivityId && l.memberId === activeMemberId
   );
@@ -71,13 +73,9 @@ export default function GPSAttendance() {
     setGeoError('');
 
     if (!navigator.geolocation) {
-      setGeoError('Browser tidak mendukung Geolocation. Menggunakan simulasi koordinat.');
+      setGeoError('Browser tidak mendukung GPS. Absensi GPS tidak dapat dilakukan pada perangkat ini.');
       setIsLocating(false);
-      setUserLocation({
-        lat: Number(selectedActivity?.targetLat) || -6.200000,
-        lng: Number(selectedActivity?.targetLng) || 106.816666,
-        accuracy: 15
-      });
+      setUserLocation(null);
       return;
     }
 
@@ -97,17 +95,9 @@ export default function GPSAttendance() {
           : err.code === 2
             ? 'Posisi GPS belum terdeteksi.'
             : 'Pencarian GPS timeout.';
-        setGeoError(`${msg} (Koordinat simulasi siap digunakan).`);
+        setGeoError(`${msg} Absensi GPS diblokir sampai lokasi nyata berhasil diperoleh.`);
         setIsLocating(false);
-        if (selectedActivity) {
-          const actLat = Number(selectedActivity.targetLat) || -6.200000;
-          const actLng = Number(selectedActivity.targetLng) || 106.816666;
-          setUserLocation({
-            lat: actLat + 0.00005,
-            lng: actLng + 0.00005,
-            accuracy: 10
-          });
-        }
+        setUserLocation(null);
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
@@ -120,9 +110,10 @@ export default function GPSAttendance() {
       Number(userLocation.lng),
       Number(selectedActivity.targetLat) || 0,
       Number(selectedActivity.targetLng) || 0,
-      Number(selectedActivity.radiusMeters) || 150
+      Number(selectedActivity.radiusMeters) || 150,
+      Number(userLocation.accuracy) || null
     )
-    : { isWithin: true, distance: 0, radiusMeters: Number(selectedActivity?.radiusMeters) || 150 };
+    : { isWithin: false, distance: null, radiusMeters: Number(selectedActivity?.radiusMeters) || 150, accuracyMeters: null, accuracyLimit: 25 };
 
   // Hitung status keterlambatan otomatis
   const timeCalc = selectedActivity ? calculateAttendanceStatus(selectedActivity, new Date()) : { status: 'Hadir', message: 'Tepat waktu' };
@@ -140,12 +131,38 @@ export default function GPSAttendance() {
   const handleSubmitGPS = async () => {
     if (!selectedActivity) { setSubmitError('Pilih agenda kegiatan terlebih dahulu.'); return; }
     if (!activeMemberId) { setSubmitError('Pilih anggota DPRD yang akan absen.'); return; }
+    if (!userLocation) { setSubmitError('Lokasi GPS belum tersedia. Izinkan akses lokasi dan tekan Perbarui Sinyal GPS.'); return; }
+    if (!radiusCheck.isWithin) {
+      if (Number.isFinite(Number(radiusCheck.accuracyMeters)) && Number(radiusCheck.accuracyMeters) > Number(radiusCheck.accuracyLimit || 25)) {
+        setSubmitError(`Sinyal GPS belum cukup akurat untuk absensi. Akurasi saat ini ${radiusCheck.accuracyMeters} meter, sedangkan batas aman untuk zona ini adalah ${radiusCheck.accuracyLimit} meter. Masuklah di sekitar ruang rapat atau sekretariat DPRD Kabupaten Cirebon lalu coba lagi.`);
+        return;
+      }
+      setSubmitError(`Absensi ditolak. Anda berada ${formatDistance(radiusCheck.distance)} dari lokasi rapat, di luar radius ${radiusCheck.radiusMeters} meter. Pastikan Anda berada di sekitar ruang rapat atau sekretariat DPRD Kabupaten Cirebon.`);
+      return;
+    }
 
     setIsSubmitting(true);
     setSubmitError('');
 
-    const currentLat = userLocation ? Number(userLocation.lat) : (Number(selectedActivity.targetLat) || -6.2);
-    const currentLng = userLocation ? Number(userLocation.lng) : (Number(selectedActivity.targetLng) || 106.81);
+    if (existingLog) {
+      if (existingLog.checkOutAt) {
+        setSubmitError('Absensi anggota ini sudah selesai. Check-out hanya dapat dilakukan satu kali.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (!window.confirm('Konfirmasi Check-out sekarang? Waktu meninggalkan kegiatan akan dicatat otomatis.')) {
+        setIsSubmitting(false);
+        return;
+      }
+      const checkoutResult = await checkoutAttendance({ activityId: selectedActivity.id, memberId: activeMemberId, method: 'GPS_ONLINE', operatorName: 'Mandiri (Mobile Presensi)', lat: Number(userLocation.lat), lng: Number(userLocation.lng), distanceMeters: Math.round(radiusCheck.distance) });
+      setIsSubmitting(false);
+      if (checkoutResult.success) setSubmitSuccess(checkoutResult.log);
+      else setSubmitError(checkoutResult.message || 'Gagal menyimpan Check-out GPS.');
+      return;
+    }
+
+    const currentLat = Number(userLocation.lat);
+    const currentLng = Number(userLocation.lng);
     const currentDist = radiusCheck ? Math.round(radiusCheck.distance) : 0;
 
     let finalStatus = isDinasLuar ? 'Dinas Luar' : timeCalc.status;
@@ -224,7 +241,7 @@ export default function GPSAttendance() {
                 onChange={e => setActiveMemberId(e.target.value)}
                 className="w-full p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white"
               >
-                {members.map(m => (
+                {participantMembers.map(m => (
                   <option key={m.id} value={m.id}>
                     {m.name} ({m.fraksi} • {m.komisi})
                   </option>
@@ -328,7 +345,7 @@ export default function GPSAttendance() {
                 <div>
                   <h4 className="font-bold text-sm text-white">Presensi Berhasil Diverifikasi!</h4>
                   <p className="text-[11px] text-emerald-200 mt-0.5">
-                    Status: <strong>{submitSuccess.status}</strong> • Metode: {submitSuccess.method}
+                    {submitSuccess.checkOutAt ? <>Check-in: <strong>{new Date(submitSuccess.checkInAt || submitSuccess.timestamp).toLocaleTimeString('id-ID')} WIB</strong> • Check-out: <strong>{new Date(submitSuccess.checkOutAt).toLocaleTimeString('id-ID')} WIB</strong> • Durasi: <strong>{submitSuccess.durationMinutes} menit</strong></> : <>Status: <strong>{submitSuccess.status}</strong> • Metode: {submitSuccess.method}</>}
                   </p>
                 </div>
               </div>
@@ -337,7 +354,7 @@ export default function GPSAttendance() {
             {/* Tombol Kirim Presensi */}
             <button
               onClick={handleSubmitGPS}
-              disabled={isSubmitting || !!submitSuccess}
+              disabled={isSubmitting || (!!submitSuccess && !existingLog?.checkOutAt)}
               className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-2xl text-xs sm:text-sm shadow-lg shadow-emerald-900/30 transition flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
@@ -345,6 +362,10 @@ export default function GPSAttendance() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                   <span>Memvalidasi Multi-Faktor...</span>
                 </>
+              ) : existingLog?.checkOutAt ? (
+                <><CheckCircle2 className="w-5 h-5" /><span>Absensi Sudah Selesai</span></>
+              ) : existingLog ? (
+                <><Clock className="w-5 h-5" /><span>CHECK-OUT SEKARANG</span></>
               ) : (
                 <>
                   <Smartphone className="w-5 h-5" />
@@ -397,7 +418,7 @@ export default function GPSAttendance() {
             <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-400">Jarak ke Titik Agenda:</span>
-                <span className="font-bold text-white font-mono">{formatDistance(radiusCheck.distance)}</span>
+                <span className="font-bold text-white font-mono">{userLocation ? formatDistance(radiusCheck.distance) : 'Belum tersedia'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Batas Toleransi:</span>

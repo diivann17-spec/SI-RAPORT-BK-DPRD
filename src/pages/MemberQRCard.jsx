@@ -304,7 +304,7 @@ export default function MemberQRCard() {
 
             {/* CARD CONTAINER FIXED RATIO & SIZE */}
             <div
-              className="id-card-box-vertical w-[250px] h-[380px] text-white rounded-3xl p-4 shadow-2xl border border-amber-500/50 relative overflow-hidden flex flex-col justify-between text-center"
+              className="id-card-box-vertical w-full max-w-[250px] h-[380px] text-white rounded-3xl p-4 shadow-2xl border border-amber-500/50 relative overflow-hidden flex flex-col justify-between text-center"
               style={{
                 backgroundColor: '#081526',
                 backgroundImage: 'linear-gradient(180deg, #0a1b33 0%, #0c2340 50%, #081526 100%)',
@@ -380,7 +380,7 @@ export default function MemberQRCard() {
 
             {/* CARD CONTAINER FIXED RATIO & SIZE */}
             <div
-              className="id-card-box-vertical w-[250px] h-[380px] text-white rounded-3xl p-4 shadow-2xl border border-amber-500/50 relative overflow-hidden flex flex-col justify-between"
+              className="id-card-box-vertical w-full max-w-[250px] h-[380px] text-white rounded-3xl p-4 shadow-2xl border border-amber-500/50 relative overflow-hidden flex flex-col justify-between"
               style={{
                 backgroundColor: '#081526',
                 backgroundImage: 'linear-gradient(180deg, #0a1b33 0%, #0c2340 50%, #081526 100%)',

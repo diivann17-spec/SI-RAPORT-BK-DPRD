@@ -21,7 +21,9 @@ import {
   ShieldCheck,
   Award,
   Smartphone,
-  Navigation
+  Navigation,
+  ClipboardList,
+  Send
 } from 'lucide-react';
 
 export default function MemberPortal({ onNavigate }) {
@@ -33,17 +35,24 @@ export default function MemberPortal({ onNavigate }) {
     activities,
     logs,
     getMemberRaport,
-    currentUser
+    currentUser,
+    leaveRequests,
+    requestLeave,
   } = useAttendance();
 
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'schedule' | 'history' | 'raport' | 'profile'
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [isRaportModalOpen, setIsRaportModalOpen] = useState(false);
+  const [leaveForm, setLeaveForm] = useState({ activityId: '', type: 'IZIN', reason: '', note: '' });
+  const [leaveFeedback, setLeaveFeedback] = useState(null);
 
   // Ambil data anggota saat ini
   const member = getMemberById(activeMemberId) || members.find(m => m.id === currentUser?.memberId) || members[0];
   const raport = member ? getMemberRaport(member.id, selectedCategory) : null;
   const memberLogs = logs.filter(l => l.memberId === member?.id && l.participantType !== 'EXTERNAL');
+  const memberLeaveRequests = leaveRequests.filter(req => req.memberId === member?.id);
+
+  const defaultLeaveActivityId = activities.find(a => a.status === 'ACTIVE')?.id || activities[0]?.id || '';
 
   if (!member) {
     return (
@@ -66,6 +75,29 @@ export default function MemberPortal({ onNavigate }) {
     setActiveMemberId(member.id);
     if (onNavigate) {
       onNavigate('member_qr');
+    }
+  };
+
+  const handleLeaveSubmit = async (e) => {
+    e.preventDefault();
+    if (!leaveForm.activityId) {
+      setLeaveFeedback({ type: 'error', text: 'Pilih agenda yang ingin diajukan izinnya.' });
+      return;
+    }
+
+    const result = await requestLeave({
+      activityId: leaveForm.activityId,
+      memberId: member.id,
+      type: leaveForm.type,
+      reason: leaveForm.reason,
+      note: leaveForm.note,
+    });
+
+    if (result.success) {
+      setLeaveFeedback({ type: 'success', text: 'Pengajuan izin digital berhasil dikirim dan menunggu verifikasi BK.' });
+      setLeaveForm(prev => ({ ...prev, reason: '', note: '' }));
+    } else {
+      setLeaveFeedback({ type: 'error', text: result.message || 'Pengajuan izin gagal dikirim.' });
     }
   };
 
@@ -153,7 +185,112 @@ export default function MemberPortal({ onNavigate }) {
       {/* ── TAB 1: DASHBOARD PRIBADI ── */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <ClipboardList className="w-5 h-5 text-amber-500" />
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Pengajuan Izin Digital</h3>
+            </div>
+
+            <form onSubmit={handleLeaveSubmit} className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Agenda</label>
+                  <select
+                    value={leaveForm.activityId || defaultLeaveActivityId}
+                    onChange={e => setLeaveForm(prev => ({ ...prev, activityId: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white text-xs font-bold"
+                  >
+                    {activities.map(act => (
+                      <option key={act.id} value={act.id}>{act.title}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Jenis Izin</label>
+                  <select
+                    value={leaveForm.type}
+                    onChange={e => setLeaveForm(prev => ({ ...prev, type: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white text-xs font-bold"
+                  >
+                    <option value="IZIN">Izin</option>
+                    <option value="SAKIT">Sakit</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Alasan</label>
+                <input
+                  type="text"
+                  value={leaveForm.reason}
+                  onChange={e => setLeaveForm(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="Contoh: Urusan keluarga penting"
+                  className="w-full p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Catatan Tambahan</label>
+                <textarea
+                  rows={3}
+                  value={leaveForm.note}
+                  onChange={e => setLeaveForm(prev => ({ ...prev, note: e.target.value }))}
+                  placeholder="Opsional"
+                  className="w-full p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white text-xs resize-none"
+                />
+              </div>
+
+              {leaveFeedback && (
+                <div className={`p-3 rounded-2xl text-[11px] font-bold ${leaveFeedback.type === 'success' ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-600 border border-rose-500/20'}`}>
+                  {leaveFeedback.text}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="w-full md:w-auto px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-black rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg transition"
+              >
+                <Send className="w-4 h-4" />
+                <span>Kirim Pengajuan Izin</span>
+              </button>
+            </form>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Status Pengajuan Izin Saya</h3>
+            </div>
+
+            {memberLeaveRequests.length === 0 ? (
+              <div className="text-xs text-slate-400">Belum ada pengajuan izin digital yang dibuat.</div>
+            ) : (
+              <div className="space-y-3">
+                {memberLeaveRequests.map(req => (
+                  <div key={req.id} className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-bold text-xs text-slate-900 dark:text-white">{activities.find(a => a.id === req.activityId)?.title || req.activityId}</p>
+                        <p className="text-[11px] text-slate-400">{req.type === 'SAKIT' ? 'Sakit' : 'Izin'} • {new Date(req.submittedAt).toLocaleString('id-ID')}</p>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                        req.status === 'APPROVED'
+                          ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                          : req.status === 'REJECTED'
+                            ? 'bg-rose-500/10 text-rose-600 border-rose-500/20'
+                            : 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                      }`}>
+                        {req.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-2">Alasan: {req.reason}</p>
+                    {req.adminNote && <p className="text-[11px] text-slate-400 mt-1">Catatan admin: {req.adminNote}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Quick Action Presensi Mandiri */}
           {upcomingActivities.length > 0 && (
             <div className="p-5 rounded-3xl bg-gradient-to-r from-emerald-900/80 via-teal-900/70 to-slate-900 border border-emerald-500/40 text-white shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">

@@ -41,6 +41,19 @@ export function getRaportCategory(percentage) {
   }
 }
 
+export function getDisciplineGrade(percentage, thresholds = {}) {
+  const score = Number(percentage) || 0;
+  const excellent = Number(thresholds.excellent ?? 90);
+  const good = Number(thresholds.good ?? 80);
+  const fair = Number(thresholds.fair ?? 70);
+  const poor = Number(thresholds.poor ?? 60);
+  if (score >= excellent) return { grade: 'A', label: 'Sangat Baik' };
+  if (score >= good) return { grade: 'B', label: 'Baik' };
+  if (score >= fair) return { grade: 'C', label: 'Cukup' };
+  if (score >= poor) return { grade: 'D', label: 'Kurang' };
+  return { grade: 'E', label: 'Sangat Kurang' };
+}
+
 export function getStatusBadge(status) {
   switch (status?.toLowerCase()) {
     case 'hadir tepat waktu':

@@ -56,13 +56,20 @@ function getAbsenUrl(activityId, qrToken) {
   };
 }
 
+function parseLocalDate(dateValue) {
+  const [year, month, day] = String(dateValue || '').split('-').map(Number);
+  return Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
+    ? new Date(year, month - 1, day)
+    : new Date();
+}
+
 
 export default function ActivityQRModal({ isOpen, onClose, activity }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [now, setNow] = useState(new Date());
-  // IP LAN dikelola di state — default auto fallback ke IP WiFi 192.168.21.228 jika belum di-set
+  // IP LAN harus diisi sesuai IPv4 komputer saat aplikasi dibuka melalui localhost.
   const [lanIpInput, setLanIpInput] = useState(
-    () => localStorage.getItem('siraport_lan_ip') || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '192.168.21.228' : '')
+    () => localStorage.getItem('siraport_lan_ip') || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '' : window.location.hostname)
   );
   const [copied, setCopied] = useState(false);
   const [showLanHelp, setShowLanHelp] = useState(false);
@@ -86,7 +93,8 @@ export default function ActivityQRModal({ isOpen, onClose, activity }) {
   const [endH, endM] = (activity.endTime || '16:00').split(':').map(Number);
   const tolerance = Number(activity.toleranceMinutes ?? 30);
 
-  const actDate = new Date(activity.date);
+  // Date input is a calendar date, not an ISO timestamp. Keep it in local/WIB time.
+  const actDate = parseLocalDate(activity.date);
   const startDateTime = new Date(actDate);
   startDateTime.setHours(startH, startM, 0, 0);
   const toleranceDateTime = new Date(startDateTime.getTime() + tolerance * 60 * 1000);

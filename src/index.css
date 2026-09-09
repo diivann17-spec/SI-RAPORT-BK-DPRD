@@ -8,6 +8,14 @@
     --brand-accent: #b45309;
   }
 
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    overflow-x: hidden;
+  }
+
   body {
     background-color: #0f172a;
     color: #f8fafc;
@@ -15,6 +23,84 @@
     -webkit-font-smoothing: antialiased;
     margin: 0;
     padding: 0;
+    overflow-x: hidden;
+  }
+
+  #root {
+    min-height: 100vh;
+    max-width: 100%;
+  }
+
+  img,
+  svg,
+  canvas,
+  video {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  a,
+  button,
+  input,
+  textarea,
+  select {
+    max-width: 100%;
+  }
+
+  p,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  span,
+  div,
+  li,
+  td,
+  th,
+  label,
+  small,
+  button,
+  a {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  td,
+  th {
+    vertical-align: top;
+  }
+}
+
+@layer utilities {
+  .text-ellipsis-safe {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .id-card-box-horizontal,
+  .id-card-box-vertical {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+
+  .mobile-stack {
+    display: block;
+    width: 100%;
   }
 }
 
@@ -61,6 +147,48 @@
 .live-indicator {
   animation: pulse-ring 2s infinite ease-in-out;
 }
+
+.envelope-template-picker { background: rgba(30, 41, 59, 0.72); border: 1px solid #334155; border-radius: 16px; padding: 16px; }
+.envelope-template-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.envelope-template-option { position: relative; min-width: 0; padding: 7px; border: 1px solid #475569; border-radius: 10px; background: #0f172a; color: #cbd5e1; text-align: left; transition: border-color .2s, transform .2s; }
+.envelope-template-option:hover { transform: translateY(-2px); border-color: #f59e0b; }
+.envelope-template-option.is-selected { border: 2px solid #fbbf24; padding: 6px; box-shadow: 0 0 0 2px rgba(251, 191, 36, .15); }
+.envelope-mini { display: block; position: relative; aspect-ratio: 1.8; overflow: hidden; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,.35); }
+.envelope-mini img { position: absolute; width: 18%; height: 28%; object-fit: contain; left: 41%; top: 42%; }
+.envelope-mini-flap { position: absolute; z-index: 1; left: 25%; top: -48%; width: 50%; height: 95%; transform: rotate(45deg); background: rgba(255,255,255,.72); border: 1px solid rgba(15,23,42,.2); }
+.envelope-template-number { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-top: 6px; border-radius: 4px; background: #172554; color: #fff; font-size: 10px; font-weight: 800; }
+.envelope-template-name { display: block; margin-top: 4px; overflow: hidden; font-size: 10px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.envelope-side-toggle { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
+.envelope-side-toggle button { border: 1px solid #475569; border-radius: 6px; padding: 5px 12px; color: #cbd5e1; background: #0f172a; font-size: 10px; font-weight: 800; }
+.envelope-side-toggle button.is-active { border-color: #fbbf24; background: #f59e0b; color: #172033; }
+.envelope-output-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.envelope-page { position: relative; display: flex; min-height: 220px; aspect-ratio: 2.12; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #94a3b8; border-radius: 3px; padding: 28px; text-align: center; box-shadow: 0 8px 18px rgba(0,0,0,.2); color: #172033; }
+.envelope-content { position: relative; z-index: 2; max-width: 78%; }
+.envelope-logo { width: 42px; height: 42px; margin: 0 auto 7px; object-fit: contain; }
+.envelope-label { margin: 0 0 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.envelope-content h3 { margin: 0; font-size: 15px; font-weight: 900; }
+.envelope-content p { margin: 2px 0 0; font-size: 10px; }
+.envelope-muted { opacity: .72; }
+.envelope-office { margin-top: 9px !important; font-size: 9px !important; font-weight: 700; }
+.envelope-back-flap { position: absolute; z-index: 1; left: 8%; top: -7%; width: 84%; height: 78%; clip-path: polygon(0 0, 100% 0, 50% 100%); background: rgba(255,255,255,.68); border: 1px solid rgba(15,23,42,.2); }
+.envelope-back-seal { position: absolute; z-index: 3; top: 39%; left: 50%; display: flex; width: 68px; height: 68px; transform: translate(-50%, -50%); align-items: center; justify-content: center; border: 1px solid currentColor; border-radius: 50%; background: rgba(255,255,255,.86); box-shadow: 0 2px 5px rgba(0,0,0,.12); }
+.envelope-back-seal img { width: 38px; height: 38px; object-fit: contain; }
+.envelope-back-seal span { position: absolute; bottom: -17px; font-size: 7px; font-weight: 900; white-space: nowrap; }
+.envelope-back-lines { position: absolute; left: 7%; right: 7%; bottom: 9%; height: 1px; background: currentColor; opacity: .3; }
+.envelope-flap { position: absolute; z-index: 1; left: -2%; top: -73%; width: 104%; height: 112%; clip-path: polygon(0 0, 100% 0, 50% 100%); background: rgba(255,255,255,.68); border-bottom: 1px solid rgba(15,23,42,.24); }
+.envelope-bottom-fold { position: absolute; z-index: 1; left: 7%; right: 7%; bottom: -69%; height: 110%; clip-path: polygon(0 0, 50% 42%, 100% 0, 100% 100%, 0 100%); border-top: 1px solid rgba(15,23,42,.18); background: rgba(255,255,255,.18); }
+.envelope-corner { position: absolute; width: 42%; height: 1px; background: currentColor; opacity: .4; }
+.envelope-corner-left { left: 4%; bottom: 10%; transform: rotate(26deg); }.envelope-corner-right { right: 4%; bottom: 10%; transform: rotate(-26deg); }
+.envelope-formal, .envelope-dinas { background: linear-gradient(145deg, #fff, #e6edf3); color: #123455; }.envelope-formal::before, .envelope-dinas::before { content: ''; position: absolute; inset: auto 0 0; height: 8px; background: #123455; clip-path: polygon(0 100%, 100% 0, 100% 100%); }
+.envelope-gold, .envelope-premium { background: #f7f1e3; color: #806322; border-color: #c8a75b; }.envelope-gold .envelope-flap, .envelope-premium .envelope-flap { background: #f0e5c9; }
+.envelope-mega, .envelope-komisi { background: #dbeeff; color: #123d70; background-image: repeating-radial-gradient(ellipse at 0 100%, transparent 0 13px, rgba(24,88,150,.3) 14px 16px, transparent 17px 27px), repeating-linear-gradient(135deg, transparent 0 17px, rgba(24,88,150,.12) 18px 20px); }
+.envelope-modern { background: linear-gradient(135deg, #eef5fb 0 72%, #1b4d7d 72%); color: #123455; }.envelope-modern .envelope-flap { background: #dce9f5; }
+.envelope-pimpinan { background: #f6f4ed; color: #142d51; border-color: #b99b3e; }.envelope-pimpinan::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 9px; background: linear-gradient(135deg, #d4af37 0 22%, #163c68 22% 42%, transparent 42%); }
+.envelope-paripurna { background: #fafafa; color: #19283d; border-color: #d2d2d2; }.envelope-paripurna::before { content: ''; position: absolute; inset: 0; border: 11px solid transparent; border-top-color: #dc2626; border-left-color: #dc2626; border-radius: 12px; opacity: .9; }
+.envelope-vip { background: linear-gradient(135deg, #242424, #080808); color: #f6d77a; border-color: #9d7a20; }.envelope-vip .envelope-flap { background: #171717; border-color: #a98429; }.envelope-vip .envelope-muted, .envelope-vip .envelope-label { color: #fff0ad; }
+.envelope-vip .envelope-back-flap { background: #171717; border-color: #a98429; }.envelope-vip .envelope-back-seal { background: #101010; }
+
+@media (max-width: 640px) { .envelope-template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .envelope-output-grid { grid-template-columns: 1fr; } }
 
 /* Falling snow particle animation */
 @keyframes splashSnowFall {
@@ -117,6 +245,11 @@
   box-shadow: inset 25px 0 50px rgba(0, 0, 0, 0.95), -20px 0 45px rgba(0, 0, 0, 0.9);
 }
 
+/* The official attendance sheet is rendered only by the browser print view. */
+.attendance-print-sheet {
+  display: none;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    PRECISE PRINT CSS FOR ID CARDS & E-RAPORT (A4 / F4 / PVC)
    ═══════════════════════════════════════════════════════════════ */
@@ -133,6 +266,23 @@
   .no-print {
     display: none !important;
   }
+
+  /* Print only the invitation modal; the application shell must stay out. */
+  #root:has(.invitation-generator-modal) > * { visibility: hidden !important; }
+  #root:has(.invitation-generator-modal) .invitation-generator-modal,
+  #root:has(.invitation-generator-modal) .invitation-generator-modal * { visibility: visible !important; }
+  .invitation-generator-modal { position: absolute !important; inset: 0 !important; display: block !important; padding: 0 !important; background: #fff !important; }
+  .invitation-generator-modal > div { width: 100% !important; max-width: none !important; max-height: none !important; overflow: visible !important; border: 0 !important; border-radius: 0 !important; background: #fff !important; box-shadow: none !important; }
+  .invitation-generator-modal > div > div:last-child { max-height: none !important; overflow: visible !important; padding: 8mm !important; }
+
+  .envelope-workspace { width: 100% !important; }
+  .envelope-output-grid { display: grid !important; grid-template-columns: 1fr !important; gap: 8mm !important; }
+  .envelope-page { width: 180mm !important; height: 82mm !important; min-height: 82mm !important; max-width: 180mm !important; aspect-ratio: auto !important; margin: 0 auto !important; box-sizing: border-box !important; page-break-inside: avoid !important; break-inside: avoid !important; box-shadow: none !important; }
+  .envelope-content { max-width: 90% !important; overflow-wrap: anywhere !important; }
+  .envelope-content h3 { font-size: 14pt !important; overflow-wrap: anywhere !important; }
+  .envelope-content p { font-size: 9pt !important; }
+  .envelope-logo { width: 38px !important; height: 38px !important; }
+  .envelope-back-seal { width: 58px !important; height: 58px !important; }
 
   .print-only {
     display: block !important;
@@ -192,6 +342,94 @@
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+
+  /* Official external attendance sheet */
+  .report-center-ui > :not(.attendance-print-sheet) {
+    display: none !important;
+  }
+
+  .attendance-print-sheet {
+    display: block !important;
+    width: 190mm !important;
+    min-height: 270mm !important;
+    margin: 0 auto !important;
+    color: #000 !important;
+    background: #fff !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    font-size: 9pt !important;
+  }
+
+  .attendance-print-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 7mm !important;
+    text-align: center !important;
+    border-bottom: 0.5mm solid #008b57 !important;
+    padding: 4mm 0 2mm !important;
+  }
+
+  .attendance-print-header img {
+    width: 22mm !important;
+    height: 25mm !important;
+    object-fit: contain !important;
+  }
+
+  .attendance-print-header h1,
+  .attendance-print-header h2,
+  .attendance-print-header p,
+  .attendance-print-title h2,
+  .attendance-print-title p {
+    margin: 0 !important;
+  }
+
+  .attendance-print-header h1 { font-size: 14pt !important; font-weight: 800 !important; }
+  .attendance-print-header h2 { font-size: 11pt !important; font-weight: 800 !important; }
+  .attendance-print-header p { font-size: 7pt !important; }
+
+  .attendance-print-title {
+    text-align: center !important;
+    padding: 2mm 0 3mm !important;
+    font-weight: 700 !important;
+  }
+
+  .attendance-print-title h2 { font-size: 10pt !important; text-decoration: underline !important; }
+  .attendance-print-title p { font-size: 8pt !important; }
+
+  .attendance-print-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: fixed !important;
+    color: #000 !important;
+  }
+
+  .attendance-print-sheet th,
+  .attendance-print-sheet td {
+    border: 0.25mm solid #000 !important;
+    height: 7mm !important;
+    padding: 1mm !important;
+    font-size: 8pt !important;
+  }
+
+  .attendance-print-sheet th { text-align: center !important; font-weight: 700 !important; }
+  .attendance-print-sheet th:nth-child(1), .attendance-print-sheet td:nth-child(1) { width: 8mm !important; text-align: center !important; }
+  .attendance-print-sheet th:nth-child(2), .attendance-print-sheet td:nth-child(2) { width: 40mm !important; }
+  .attendance-print-sheet th:nth-child(3), .attendance-print-sheet td:nth-child(3) { width: 31mm !important; }
+  .attendance-print-sheet th:nth-child(4), .attendance-print-sheet td:nth-child(4) { width: 38mm !important; }
+  .attendance-print-sheet th:nth-child(5), .attendance-print-sheet td:nth-child(5), .attendance-print-sheet th:nth-child(6), .attendance-print-sheet td:nth-child(6) { width: 22mm !important; }
+  .attendance-print-sheet th:nth-child(7), .attendance-print-sheet td:nth-child(7) { width: 29mm !important; }
+
+  .attendance-print-signatures {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 20mm !important;
+    text-align: center !important;
+    margin-top: 13mm !important;
+    font-size: 8pt !important;
+    line-height: 1.35 !important;
+  }
+
+  .attendance-print-signatures strong { text-decoration: underline !important; }
 
   /* Keep tables neat and prevent awkward page cuts */
   table {

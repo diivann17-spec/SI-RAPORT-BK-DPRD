@@ -15,7 +15,11 @@ import {
   MapPin,
   ChevronRight,
   ShieldAlert,
-  Bell
+  Bell,
+  Mail,
+  BarChart3,
+  FolderArchive,
+  DoorOpen
 } from 'lucide-react';
 
 export default function MobileDrawer({ isOpen, onClose, activeTab, setActiveTab }) {
@@ -116,10 +120,52 @@ export default function MobileDrawer({ isOpen, onClose, activeTab, setActiveTab 
           roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
         },
         {
+          id: 'personnel',
+          label: 'Personel Sekretariat DPRD',
+          icon: Users,
+          roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
+        },
+        {
           id: 'activities',
           label: 'Agenda & Jadwal',
           icon: Calendar,
           roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK', 'ANGGOTA_DPRD']
+        },
+        {
+          id: 'reports',
+          label: 'Laporan Terintegrasi',
+          icon: BarChart3,
+          roles: ['PETUGAS_BK', 'SECRETARIAT_ADMIN', 'ANGGOTA_DPRD']
+        },
+        {
+          id: 'calendar',
+          label: 'Kalender Agenda',
+          icon: Calendar,
+          roles: ['PETUGAS_BK', 'SECRETARIAT_ADMIN', 'ANGGOTA_DPRD']
+        },
+        {
+          id: 'archive',
+          label: 'Arsip Digital',
+          icon: FolderArchive,
+          roles: ['PETUGAS_BK', 'SECRETARIAT_ADMIN', 'ANGGOTA_DPRD']
+        },
+        {
+          id: 'notifications',
+          label: 'Pusat Notifikasi',
+          icon: Bell,
+          roles: ['PETUGAS_BK', 'SECRETARIAT_ADMIN', 'ANGGOTA_DPRD']
+        },
+        {
+          id: 'rooms',
+          label: 'Master Ruangan',
+          icon: DoorOpen,
+          roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
+        },
+        {
+          id: 'invitations',
+          label: 'Undangan & Amplop',
+          icon: Mail,
+          roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
         }
       ]
     },

@@ -6,12 +6,21 @@ import {
   FileSpreadsheet, X, Printer, Download, Users,
   Building2, Calendar, Clock, MapPin, CheckCircle,
   FileText, Image as ImageIcon, Sparkles, Check, Edit2
+  , Paperclip
 } from 'lucide-react';
 
+function formatDuration(minutes) {
+  if (!Number.isFinite(Number(minutes)) || Number(minutes) <= 0) return '-';
+  const hours = Math.floor(Number(minutes) / 60);
+  const remainingMinutes = Number(minutes) % 60;
+  return `${hours ? `${hours} Jam ` : ''}${remainingMinutes} Menit`;
+}
+
 export default function LPJViewerModal({ isOpen, onClose, activityId }) {
-  const { getLPJData, updateLPJSummary } = useAttendance();
+  const { getLPJData, updateLPJSummary, reportSigners } = useAttendance();
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesInput, setNotesInput] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
 
   const lpj = getLPJData(activityId);
 
@@ -28,6 +37,92 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
   const handleSaveNotes = async () => {
     await updateLPJSummary(activityId, { notes: notesInput });
     setIsEditingNotes(false);
+  };
+
+  const handleArchiveFiles = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    setIsUploading(true);
+    const attachments = await Promise.all(files.map(file => new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: file.name, type: file.type, size: file.size, dataUrl: reader.result });
+      reader.readAsDataURL(file);
+    })));
+    await updateLPJSummary(activityId, { attachments: [...(lpjSummary.attachments || []), ...attachments] });
+    setIsUploading(false);
+    event.target.value = '';
+  };
+
+  const normalizeDocumentationPhotos = (photos = []) => {
+    if (!Array.isArray(photos)) return [];
+    return photos
+      .map((photo, index) => {
+        if (typeof photo === 'string') {
+          return {
+            id: `photo-${index}-${photo.slice(-24)}`,
+            dataUrl: photo,
+            caption: '',
+            isPrimary: index === 0,
+          };
+        }
+
+        return {
+          id: photo.id || `photo-${index}-${(photo.dataUrl || '').slice(-24) || index}`,
+          dataUrl: photo.dataUrl || photo.url || '',
+          caption: photo.caption || '',
+          isPrimary: Boolean(photo.isPrimary),
+        };
+      })
+      .filter(photo => photo.dataUrl);
+  };
+
+  const documentationPhotos = normalizeDocumentationPhotos(lpjSummary.documentationPhotos || []);
+
+  const persistDocumentationPhotos = async (nextPhotos) => {
+    const normalized = normalizeDocumentationPhotos(nextPhotos);
+
+    if (normalized.length > 0 && !normalized.some(photo => photo.isPrimary)) {
+      normalized[0].isPrimary = true;
+    }
+
+    await updateLPJSummary(activityId, {
+      documentationPhotos: normalized,
+    });
+  };
+
+  const handleDocumentationUpload = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+
+    setIsUploading(true);
+
+    const newPhotos = await Promise.all(files.map(file => new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({
+        id: `photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        dataUrl: reader.result,
+        caption: '',
+        isPrimary: false,
+      });
+      reader.readAsDataURL(file);
+    })));
+
+    const nextPhotos = [...documentationPhotos, ...newPhotos];
+    await persistDocumentationPhotos(nextPhotos);
+    setIsUploading(false);
+    event.target.value = '';
+  };
+
+  const updateDocumentationPhoto = async (photoId, updates) => {
+    const nextPhotos = documentationPhotos.map(photo =>
+      photo.id === photoId ? { ...photo, ...updates } : photo
+    );
+    await persistDocumentationPhotos(nextPhotos);
+  };
+
+  const removeDocumentationPhoto = async (photoId) => {
+    const filtered = documentationPhotos.filter(photo => photo.id !== photoId);
+    await persistDocumentationPhotos(filtered);
   };
 
   return (
@@ -187,7 +282,9 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                   <tr className="bg-slate-800/80 print:bg-gray-200 text-slate-300 print:text-black font-bold border-b border-slate-700 print:border-gray-400">
                     <th className="p-2.5 text-center w-10">No</th>
                     <th className="p-2.5">Nama Anggota & Fraksi</th>
-                    <th className="p-2.5">Waktu Scan</th>
+                    <th className="p-2.5">Check-in</th>
+                    <th className="p-2.5">Check-out</th>
+                    <th className="p-2.5">Durasi</th>
                     <th className="p-2.5">Metode & Perangkat</th>
                     <th className="p-2.5">Status Kehadiran</th>
                     <th className="p-2.5">Keterangan / SPT</th>
@@ -196,7 +293,7 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                 <tbody className="divide-y divide-slate-800 print:divide-gray-300 text-slate-300 print:text-black">
                   {internalLogs.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="p-4 text-center text-slate-500 print:text-gray-500">
+                      <td colSpan="8" className="p-4 text-center text-slate-500 print:text-gray-500">
                         Belum ada data presensi anggota pada kegiatan ini.
                       </td>
                     </tr>
@@ -213,6 +310,12 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                           <td className="p-2.5 font-mono text-[11px]">
                             {log.timestamp ? new Date(log.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'} WIB
                           </td>
+                          <td className="p-2.5 font-mono text-[11px]">
+                            {log.checkOutAt ? `${new Date(log.checkOutAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : <span className="text-amber-400 print:text-gray-600">Belum</span>}
+                          </td>
+                          <td className="p-2.5 text-[11px] whitespace-nowrap">
+                            {formatDuration(log.durationMinutes)}
+                          </td>
                           <td className="p-2.5 text-[11px]">
                             <span className="font-semibold block">{log.method}</span>
                             <span className="text-[10px] text-slate-400 print:text-gray-500">{log.deviceType || 'Smartphone'}</span>
@@ -221,9 +324,10 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${badge.bg}`}>
                               {badge.label}
                             </span>
+                            {log.checkoutStatus && <span className={`block mt-1 text-[10px] font-bold ${log.checkoutStatus === 'Pulang Lebih Awal' ? 'text-rose-300 print:text-rose-700' : 'text-emerald-300 print:text-emerald-700'}`}>{log.checkoutStatus}</span>}
                           </td>
                           <td className="p-2.5 text-[11px] text-slate-400 print:text-gray-700">
-                            {log.sptNumber && <span className="block text-indigo-300 print:text-indigo-900 font-bold">{log.sptNumber}</span>}
+                            {log.sptNumber && <span className="block text-indigo-300 print:text-indigo-900 font-bold">SPT: {log.sptNumber}{log.sptDate ? ` (${log.sptDate})` : ''}</span>}
                             {log.note || '-'}
                           </td>
                         </tr>
@@ -247,17 +351,20 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                 <thead>
                   <tr className="bg-slate-800/80 print:bg-gray-200 text-slate-300 print:text-black font-bold border-b border-slate-700 print:border-gray-400">
                     <th className="p-2.5 text-center w-10">No</th>
+                    <th className="p-2.5">Nama</th>
+                    <th className="p-2.5">Jabatan</th>
                     <th className="p-2.5">Instansi / OPD</th>
-                    <th className="p-2.5">Pihak Diundang</th>
+                    <th className="p-2.5">Jenis</th>
                     <th className="p-2.5">Status & Delegasi</th>
-                    <th className="p-2.5">Waktu Kehadiran</th>
+                    <th className="p-2.5">Check-in</th>
+                    <th className="p-2.5">Check-out</th>
                     <th className="p-2.5">Catatan</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 print:divide-gray-300 text-slate-300 print:text-black">
                   {externalLogs.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="p-4 text-center text-slate-500 print:text-gray-500">
+                      <td colSpan="9" className="p-4 text-center text-slate-500 print:text-gray-500">
                         Tidak ada tamu eksternal / OPD terdaftar pada agenda ini.
                       </td>
                     </tr>
@@ -265,8 +372,10 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                     externalLogs.map((gst, idx) => (
                       <tr key={gst.id} className="hover:bg-slate-800/40 print:hover:bg-transparent">
                         <td className="p-2.5 text-center font-mono">{idx + 1}</td>
-                        <td className="p-2.5 font-bold text-white print:text-black">{gst.agency}</td>
-                        <td className="p-2.5 text-slate-300 print:text-black">{gst.invitedName}</td>
+                        <td className="p-2.5 font-bold text-white print:text-black">{gst.isRepresented ? gst.representativeName : gst.guestName || gst.invitedName}</td>
+                        <td className="p-2.5 text-slate-300 print:text-black">{gst.isRepresented ? gst.representativePosition : gst.position || '-'}</td>
+                        <td className="p-2.5 text-slate-300 print:text-black">{gst.agency}</td>
+                        <td className="p-2.5 text-slate-300 print:text-black">{gst.participantCategory || 'OPD/INSTANSI'}</td>
                         <td className="p-2.5">
                           {gst.isRepresented ? (
                             <div>
@@ -288,6 +397,9 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                         </td>
                         <td className="p-2.5 font-mono text-[11px]">
                           {gst.timestamp ? new Date(gst.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'} WIB
+                        </td>
+                        <td className="p-2.5 font-mono text-[11px]">
+                          {gst.checkOutAt ? `${new Date(gst.checkOutAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : '-'}
                         </td>
                         <td className="p-2.5 text-[11px] text-slate-400 print:text-gray-700">{gst.note || '-'}</td>
                       </tr>
@@ -335,37 +447,102 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
             )}
 
             {/* Dokumentasi Foto */}
-            {lpjSummary.documentationPhotos?.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
-                {lpjSummary.documentationPhotos.map((photo, i) => (
-                  <img
-                    key={i}
-                    src={photo}
-                    alt={`Dokumentasi ${i + 1}`}
-                    className="w-full h-32 object-cover rounded-2xl border border-slate-700 print:border-gray-300"
-                  />
+            <div className="no-print space-y-3 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-bold cursor-pointer">
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  {isUploading ? 'Mengunggah...' : 'Tambah Dokumentasi Foto'}
+                  <input type="file" multiple accept="image/*" onChange={handleDocumentationUpload} className="hidden" disabled={isUploading} />
+                </label>
+                <span className="text-[10px] text-slate-500">{documentationPhotos.length} foto terlampir</span>
+              </div>
+
+              {documentationPhotos.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {documentationPhotos.map((photo, index) => (
+                    <div key={photo.id} className="rounded-2xl border border-slate-700 bg-slate-800/40 p-2.5 space-y-2">
+                      <div className="relative">
+                        <img
+                          src={photo.dataUrl}
+                          alt={`Dokumentasi ${index + 1}`}
+                          className="w-full h-32 object-cover rounded-xl border border-slate-700"
+                        />
+                        {photo.isPrimary && (
+                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            Foto Utama
+                          </span>
+                        )}
+                      </div>
+
+                      <textarea
+                        value={photo.caption || ''}
+                        onChange={e => updateDocumentationPhoto(photo.id, { caption: e.target.value })}
+                        rows={2}
+                        placeholder="Caption foto / keterangan dokumentasi"
+                        className="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-[10px] text-slate-200 resize-none"
+                      />
+
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateDocumentationPhoto(photo.id, { isPrimary: true })}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${photo.isPrimary ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-slate-700 text-slate-200 border-slate-600'}`}
+                        >
+                          {photo.isPrimary ? 'Utama' : 'Jadikan Utama'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeDocumentationPhoto(photo.id)}
+                          className="px-2 py-1 rounded-lg text-[10px] font-bold border border-rose-500/30 bg-rose-500/10 text-rose-300"
+                        >
+                          Hapus
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="no-print space-y-2 pt-2">
+              <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-bold cursor-pointer">
+                <Paperclip className="w-3.5 h-3.5" />
+                {isUploading ? 'Mengunggah...' : 'Tambah Arsip Dokumen'}
+                <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" onChange={handleArchiveFiles} className="hidden" disabled={isUploading} />
+              </label>
+              <p className="text-[10px] text-slate-500">Surat undangan, berita acara, notulen, foto, dan laporan kegiatan.</p>
+            </div>
+
+            {lpjSummary.attachments?.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {lpjSummary.attachments.map((file, index) => (
+                  <div key={`${file.name}-${index}`} className="rounded-xl bg-slate-800 border border-slate-700 overflow-hidden">
+                    {file.type?.startsWith('image/') ? (
+                      <a href={file.dataUrl} target="_blank" rel="noreferrer" title={`Buka ${file.name}`}>
+                        <img src={file.dataUrl} alt={file.name} className="w-full h-44 object-contain bg-slate-950 print:bg-white print:h-36" />
+                      </a>
+                    ) : file.type === 'application/pdf' ? (
+                      <iframe src={file.dataUrl} title={file.name} className="w-full h-44 bg-white border-0" />
+                    ) : null}
+                    <a href={file.dataUrl} download={file.name} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-2.5 text-xs text-slate-200 hover:border-emerald-500">
+                      <FileText className="w-4 h-4 text-emerald-400 shrink-0" /><span className="truncate">{file.name}</span>
+                    </a>
+                  </div>
                 ))}
               </div>
             )}
           </div>
 
           {/* Lembar Pengesahan / Tanda Tangan */}
-          <div className="pt-6 grid grid-cols-2 gap-8 text-center text-xs print:text-black">
-            <div>
-              <p className="text-slate-400 print:text-gray-600">Mengetahui,</p>
-              <p className="font-bold text-white print:text-black mt-0.5">Ketua Badan Kehormatan (BK) DPRD</p>
+          <div className="pt-6 grid gap-8 text-center text-xs print:text-black" style={{ gridTemplateColumns: `repeat(${Math.min(4, Math.max(1, reportSigners.filter(signer => signer.active !== false).length))}, minmax(0, 1fr))` }}>
+            {reportSigners.filter(signer => signer.active !== false).map(signer => <div key={signer.id}>
+              <p className="text-slate-400 print:text-gray-600">{signer.label || 'Mengetahui'},</p>
+              <p className="font-bold text-white print:text-black mt-0.5">{signer.position}</p>
               <div className="h-16" />
-              <p className="font-black text-white print:text-black underline">Dr. H. Ahmad Muzani, S.H., M.H.</p>
-              <p className="text-[10px] text-slate-400 print:text-gray-600 font-mono">NIP. 19691105 199803 1 002</p>
-            </div>
-
-            <div>
-              <p className="text-slate-400 print:text-gray-600">Petugas Notulis / Verifikator,</p>
-              <p className="font-bold text-white print:text-black mt-0.5">Sekretariat DPRD</p>
-              <div className="h-16" />
-              <p className="font-black text-white print:text-black underline">Budi Hartono, S.STP.</p>
-              <p className="text-[10px] text-slate-400 print:text-gray-600 font-mono">NIP. 19820512 200604 1 007</p>
-            </div>
+              <p className="font-black text-white print:text-black underline">{signer.name}</p>
+              {signer.rank && <p className="text-[10px] text-slate-400 print:text-gray-600">{signer.rank}</p>}
+              {signer.nip && <p className="text-[10px] text-slate-400 print:text-gray-600 font-mono">NIP. {signer.nip}</p>}
+            </div>)}
           </div>
 
         </div>

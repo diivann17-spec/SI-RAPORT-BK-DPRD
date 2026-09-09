@@ -32,7 +32,9 @@ export default function AttendanceScan() {
     activities,
     members,
     logs,
-    loading
+    loading,
+    leaveRequests,
+    reviewLeaveRequest,
   } = useAttendance();
 
   const [selectedActivityId, setSelectedActivityId] = useState('');
@@ -57,9 +59,12 @@ export default function AttendanceScan() {
   const activityLogs = logs.filter(l => l.activityId === selectedActivityId);
   const internalLogs = activityLogs.filter(l => l.participantType !== 'EXTERNAL');
   const externalLogs = activityLogs.filter(l => l.participantType === 'EXTERNAL');
+  const pendingLeaveRequests = leaveRequests.filter(req => req.activityId === selectedActivityId && req.status === 'PENDING');
+  const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
+  const participantMembers = members.filter(member => participantIds.includes(member.id));
 
   // Members attendance list
-  const memberAttendanceList = members.map(m => {
+  const memberAttendanceList = participantMembers.map(m => {
     const log = internalLogs.find(l => l.memberId === m.id);
     return {
       member: m,
@@ -75,8 +80,14 @@ export default function AttendanceScan() {
     );
   });
 
-  const checkedInCount = internalLogs.filter(l => l.status === 'Hadir' || l.status === 'Hadir Tepat Waktu' || l.status === 'Terlambat' || l.status === 'Hadir Terlambat').length;
-  const dinasCount = internalLogs.filter(l => l.status === 'Dinas Luar' || l.status === 'Dinas').length;
+  const participantLogs = internalLogs.filter(log => participantIds.includes(log.memberId));
+  const checkedInCount = participantLogs.filter(l => l.status === 'Hadir' || l.status === 'Hadir Tepat Waktu' || l.status === 'Terlambat' || l.status === 'Hadir Terlambat').length;
+  const dinasCount = participantLogs.filter(l => l.status === 'Dinas Luar' || l.status === 'Dinas').length;
+  const izinCount = participantLogs.filter(l => l.status === 'Izin').length;
+  const sakitCount = participantLogs.filter(l => l.status === 'Sakit').length;
+  const belumAbsenCount = Math.max(0, participantMembers.length - participantLogs.length);
+  const checkedOutCount = participantLogs.filter(log => log.checkOutAt).length;
+  const stillAttendingCount = Math.max(0, checkedInCount - checkedOutCount);
 
   if (loading) {
     return (
@@ -186,8 +197,8 @@ export default function AttendanceScan() {
         {/* 4 Quick Stat Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-center">
-            <span className="text-[10px] text-slate-500 block uppercase">Anggota Hadir</span>
-            <span className="text-lg font-black text-emerald-500">{checkedInCount} / {members.length}</span>
+            <span className="text-[10px] text-slate-500 block uppercase">Total Peserta Agenda</span>
+            <span className="text-lg font-black text-emerald-500">{participantMembers.length}</span>
           </div>
           <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-center">
             <span className="text-[10px] text-slate-500 block uppercase">Dinas Luar (SPT)</span>
@@ -199,7 +210,19 @@ export default function AttendanceScan() {
           </div>
           <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-center">
             <span className="text-[10px] text-slate-500 block uppercase">Belum Absen / Alpha</span>
-            <span className="text-lg font-black text-rose-400">{members.length - internalLogs.length}</span>
+            <span className="text-lg font-black text-rose-400">{belumAbsenCount}</span>
+          </div>
+          <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-center">
+            <span className="text-[10px] text-slate-500 block uppercase">Sudah Check-in</span>
+            <span className="text-lg font-black text-cyan-500">{checkedInCount}</span>
+          </div>
+          <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-center">
+            <span className="text-[10px] text-slate-500 block uppercase">Sudah Check-out</span>
+            <span className="text-lg font-black text-blue-500">{checkedOutCount}</span>
+          </div>
+          <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-center">
+            <span className="text-[10px] text-slate-500 block uppercase">Masih Mengikuti</span>
+            <span className="text-lg font-black text-amber-500">{stillAttendingCount}</span>
           </div>
         </div>
       </div>
@@ -215,7 +238,7 @@ export default function AttendanceScan() {
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Peserta Internal ({members.length})</span>
+          <span>Anggota DPRD Peserta Agenda ({participantMembers.length})</span>
         </button>
 
         <button
@@ -246,6 +269,50 @@ export default function AttendanceScan() {
       {/* ── TAB 1: PESERTA INTERNAL (ANGGOTA DPRD) ── */}
       {activeSubTab === 'internal' && (
         <div className="space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <span>Verifikasi Izin Digital</span>
+              </h3>
+              <span className="text-[11px] text-slate-400">{pendingLeaveRequests.length} menunggu</span>
+            </div>
+
+            {pendingLeaveRequests.length === 0 ? (
+              <div className="text-xs text-slate-400">Belum ada pengajuan izin digital untuk agenda ini.</div>
+            ) : (
+              <div className="space-y-3">
+                {pendingLeaveRequests.map(req => (
+                  <div key={req.id} className="p-3 rounded-2xl border border-amber-500/20 bg-amber-500/5">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div>
+                        <p className="font-bold text-xs text-slate-900 dark:text-white">{req.memberName || 'Anggota'}</p>
+                        <p className="text-[11px] text-slate-400">{req.type === 'SAKIT' ? 'Sakit' : 'Izin'} • {activities.find(a => a.id === req.activityId)?.title || req.activityId}</p>
+                        <p className="text-[11px] text-slate-500 mt-1">Alasan: {req.reason}</p>
+                        {req.note && <p className="text-[11px] text-slate-400 mt-1">Catatan: {req.note}</p>}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => reviewLeaveRequest(req.id, 'APPROVED')}
+                          className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-[11px]"
+                        >
+                          Setujui
+                        </button>
+                        <button
+                          onClick={() => reviewLeaveRequest(req.id, 'REJECTED', 'Tidak memenuhi syarat')}
+                          className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-[11px]"
+                        >
+                          Tolak
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
@@ -280,7 +347,8 @@ export default function AttendanceScan() {
                       </p>
                       {log && (
                         <span className="text-[10px] text-slate-500 font-mono block mt-0.5">
-                          {new Date(log.timestamp).toLocaleTimeString('id-ID')} WIB • {log.method}
+                          IN {new Date(log.checkInAt || log.timestamp).toLocaleTimeString('id-ID')} WIB • {log.method}
+                          {log.checkOutAt && ` • OUT ${new Date(log.checkOutAt).toLocaleTimeString('id-ID')} WIB`}
                         </span>
                       )}
                     </div>
@@ -327,7 +395,14 @@ export default function AttendanceScan() {
               <span>Belum ada presensi tamu eksternal / OPD yang dicatat untuk agenda ini.</span>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-3">
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                <table className="w-full min-w-[820px] text-xs text-left">
+                  <thead><tr className="bg-slate-100 dark:bg-slate-800 text-slate-500"><th className="p-3">No</th><th className="p-3">Nama</th><th className="p-3">Jabatan</th><th className="p-3">Instansi</th><th className="p-3">Jenis</th><th className="p-3">Check-in</th><th className="p-3">Check-out</th><th className="p-3">Keterangan</th></tr></thead>
+                  <tbody>{externalLogs.map((gst, index) => <tr key={`report-${gst.id}`} className="border-t border-slate-200 dark:border-slate-800"><td className="p-3">{index + 1}</td><td className="p-3 font-bold text-slate-900 dark:text-white">{gst.isRepresented ? gst.representativeName : gst.guestName || gst.invitedName}</td><td className="p-3">{gst.isRepresented ? gst.representativePosition : gst.position || '-'}</td><td className="p-3">{gst.agency || gst.guestAgency || '-'}</td><td className="p-3">{gst.participantCategory || 'OPD/INSTANSI'}</td><td className="p-3 font-mono">{gst.timestamp ? new Date(gst.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'} WIB</td><td className="p-3 font-mono">{gst.checkOutAt ? `${new Date(gst.checkOutAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : '-'}</td><td className="p-3">{gst.note || (gst.isRepresented ? 'Hadir sebagai perwakilan' : gst.status || 'Hadir')}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {externalLogs.map((gst) => (
                 <div
                   key={gst.id}
@@ -359,6 +434,7 @@ export default function AttendanceScan() {
                   </div>
                 </div>
               ))}
+              </div>
             </div>
           )}
         </div>

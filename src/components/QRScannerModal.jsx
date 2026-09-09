@@ -7,8 +7,8 @@ import {
   ShieldCheck, RefreshCw, Building, Loader2, UserX
 } from 'lucide-react';
 
-export default function QRScannerModal({ isOpen, onClose, selectedActivityId }) {
-  const { members, activities, getMemberByQR, getMemberById, recordAttendance } = useAttendance();
+export default function QRScannerModal({ isOpen, onClose, selectedActivityId, activityId }) {
+  const { members, activities, logs, getMemberByQR, getMemberById, recordAttendance, checkoutAttendance, recordGuestAttendance } = useAttendance();
 
   const [scanResult, setScanResult] = useState(null);
   const [scanError, setScanError] = useState('');
@@ -19,7 +19,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId }) 
   const scannerDivId = 'qr-reader-scan-box';
   const hasScanned = useRef(false); // prevent double-scan
 
-  const selectedActivity = activities.find(a => a.id === selectedActivityId) || activities[0];
+  const selectedActivity = activities.find(a => a.id === (selectedActivityId || activityId)) || activities[0];
 
   const stopScanner = useCallback(() => {
     if (scannerRef.current) {
@@ -49,6 +49,30 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId }) 
     stopScanner();
 
     const cleanText = (decodedText || '').trim();
+
+    let scannedUrl = null;
+    try { scannedUrl = new URL(cleanText); } catch (e) {}
+    if (scannedUrl?.searchParams.get('type') === 'opd') {
+      if (!selectedActivity) {
+        setScanError('Tidak ada agenda kegiatan yang dipilih.');
+        setIsProcessing(false);
+        hasScanned.current = false;
+        return;
+      }
+      const result = await recordGuestAttendance({
+        activityId: selectedActivity.id,
+        guestId: scannedUrl.searchParams.get('guestId') || null,
+        agency: scannedUrl.searchParams.get('agency') || 'OPD/Instansi',
+        invitedName: scannedUrl.searchParams.get('name') || 'Peserta OPD',
+        participantCategory: scannedUrl.searchParams.get('category') || 'OPD/INSTANSI',
+        invitationToken: scannedUrl.searchParams.get('token') || null,
+        operatorName: 'Petugas Laptop Webcam Scanner'
+      });
+      if (result.success) setScanResult({ ...result, guest: true });
+      else { setScanError(result.message || 'Gagal menyimpan absensi OPD.'); hasScanned.current = false; }
+      setIsProcessing(false);
+      return;
+    }
 
     // 1. Ekstraksi jika QR berupa URL web presensi (?token= atau ?member= atau ?absen=)
     let extractedToken = cleanText;
@@ -109,6 +133,26 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId }) 
       return;
     }
 
+    const existingAttendance = logs.find(log => log.activityId === selectedActivity.id && log.memberId === member.id && log.participantType !== 'EXTERNAL');
+    if (existingAttendance) {
+      if (existingAttendance.checkOutAt) {
+        setScanError(`${member.name} sudah melakukan Check-out pada agenda ini.`);
+        setIsProcessing(false);
+        hasScanned.current = false;
+        return;
+      }
+      if (!window.confirm(`Konfirmasi Check-out ${member.name}?`)) {
+        setIsProcessing(false);
+        hasScanned.current = false;
+        return;
+      }
+      const checkoutResult = await checkoutAttendance({ activityId: selectedActivity.id, memberId: member.id, method: 'QR_WEBCAM', operatorName: 'Petugas Laptop Webcam Scanner' });
+      if (checkoutResult.success) setScanResult({ ...checkoutResult, member, isCheckout: true });
+      else { setScanError(checkoutResult.message || 'Gagal menyimpan Check-out.'); hasScanned.current = false; }
+      setIsProcessing(false);
+      return;
+    }
+
     // Rekam absensi ke Firestore (Webcam Petugas Meja Registrasi diizinkan scan kartu banyak anggota)
     const result = await recordAttendance({
       activityId: selectedActivity.id,
@@ -129,7 +173,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId }) 
       hasScanned.current = false;
     }
     setIsProcessing(false);
-  }, [isProcessing, getMemberByQR, getMemberById, members, recordAttendance, selectedActivity, stopScanner]);
+  }, [isProcessing, getMemberByQR, getMemberById, members, logs, recordAttendance, checkoutAttendance, selectedActivity, stopScanner]);
 
   // Inisialisasi kamera scanner
   useEffect(() => {
@@ -317,14 +361,14 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId }) 
             )}
 
             {/* Simulasi Scan (untuk testing tanpa kamera nyata / QR fisik) */}
-            {members.length > 0 && (
+            {selectedActivity && members.length > 0 && (
               <div className="mt-4 p-3 bg-slate-800/40 rounded-xl border border-slate-700/50">
                 <div className="flex items-center justify-between text-xs mb-2">
                   <span className="text-slate-400 font-semibold">Simulasi Scan (Data Anggota Firestore):</span>
                   <span className="text-[10px] text-amber-400">Klik untuk absenkan langsung</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto">
-                  {members.map(m => (
+                  {members.filter(member => (selectedActivity.participantMemberIds || []).includes(member.id)).map(m => (
                     <button
                       key={m.id}
                       onClick={() => !isProcessing && handleQRScanned(m.qrToken || m.id)}
@@ -381,18 +425,18 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId }) 
                 />
               ) : (
                 <div className="w-20 h-24 rounded-xl bg-slate-800 border-2 border-emerald-500 flex items-center justify-center text-2xl font-bold text-emerald-400 shrink-0">
-                  {scanResult.member?.name?.charAt(0)}
+                  {(scanResult.member?.name || scanResult.log?.guestName || 'O').charAt(0)}
                 </div>
               )}
               <div className="space-y-1 text-xs">
-                <h4 className="font-extrabold text-sm text-white">{scanResult.member?.name}</h4>
-                <p className="text-slate-400">NIP: <span className="font-mono text-slate-200">{scanResult.member?.nip}</span></p>
+                <h4 className="font-extrabold text-sm text-white">{scanResult.member?.name || scanResult.log?.guestName}</h4>
+                <p className="text-slate-400">{scanResult.guest ? 'Instansi' : 'NIP'}: <span className="font-mono text-slate-200">{scanResult.member?.nip || scanResult.log?.agency}</span></p>
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   <span className="px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 font-semibold text-[10px]">
-                    {scanResult.member?.fraksi}
+                    {scanResult.member?.fraksi || scanResult.log?.participantCategory}
                   </span>
                   <span className="px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-semibold text-[10px]">
-                    {scanResult.member?.komisi}
+                    {scanResult.member?.komisi || scanResult.log?.representativeName || 'Peserta Eksternal'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 pt-1">

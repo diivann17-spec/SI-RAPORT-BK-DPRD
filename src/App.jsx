@@ -10,12 +10,19 @@ import GPSAttendance from './pages/GPSAttendance';
 import MemberQRCard from './pages/MemberQRCard';
 import RaportList from './pages/RaportList';
 import MemberList from './pages/MemberList';
+import PersonnelList from './pages/PersonnelList';
 import ActivityList from './pages/ActivityList';
 import MemberPortal from './pages/MemberPortal';
 import AuditLogs from './pages/AuditLogs';
 import Settings from './pages/Settings';
+import RoomList from './pages/RoomList';
 import Login from './pages/Login';
 import PublicAttendancePage from './pages/PublicAttendancePage';
+import InvitationCenter from './pages/InvitationCenter';
+import ReportCenter from './pages/ReportCenter';
+import CalendarAgenda from './pages/CalendarAgenda';
+import ArchiveCenter from './pages/ArchiveCenter';
+import NotificationCenter from './pages/NotificationCenter';
 import SplashScreen from './components/SplashScreen';
 import { Loader2 } from 'lucide-react';
 
@@ -72,7 +79,10 @@ function AppInner() {
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-20 md:pb-0">
 
       {/* Navigation Navbar Header */}
-      <Navbar onOpenMenu={() => setIsDrawerOpen(true)} />
+      <Navbar
+        onOpenMenu={() => setIsDrawerOpen(true)}
+        onOpenNotifications={() => setActiveTab('notifications')}
+      />
 
       {/* Mobile Navigation Drawer */}
       <MobileDrawer
@@ -93,7 +103,7 @@ function AppInner() {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col md:flex-row max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 gap-4 sm:gap-6">
+      <div className="flex-1 flex flex-col md:flex-row max-w-[1500px] w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 gap-4 sm:gap-6 xl:gap-7">
 
         {/* Sidebar Menu (Desktop only) */}
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -106,10 +116,17 @@ function AppInner() {
           {activeTab === 'gps_mobile' && <GPSAttendance />}
           {activeTab === 'member_qr' && <MemberQRCard />}
           {activeTab === 'raport' && <RaportList />}
+          {activeTab === 'reports' && <ReportCenter onNavigate={setActiveTab} />}
+          {activeTab === 'calendar' && <CalendarAgenda />}
+          {activeTab === 'archive' && <ArchiveCenter />}
+          {activeTab === 'notifications' && <NotificationCenter />}
+          {activeTab === 'invitations' && <InvitationCenter />}
           {activeTab === 'members' && <MemberList onNavigate={setActiveTab} />}
+          {activeTab === 'personnel' && <PersonnelList />}
           {activeTab === 'activities' && <ActivityList />}
           {activeTab === 'audit' && <AuditLogs />}
           {activeTab === 'settings' && <Settings />}
+          {activeTab === 'rooms' && <RoomList />}
         </main>
       </div>
 

@@ -29,13 +29,21 @@ export function formatDistance(meters) {
   return `${(meters / 1000).toFixed(2)} km`;
 }
 
-// Check if user location is within geofence radius
-export function isWithinRadius(userLat, userLng, targetLat, targetLng, radiusMeters) {
+// Check if user location is within geofence radius.
+// Also enforces a practical GPS accuracy ceiling so attendance only works
+// when the device is genuinely close to the approved agenda location.
+export function isWithinRadius(userLat, userLng, targetLat, targetLng, radiusMeters, accuracyMeters = null) {
   const distance = calculateDistance(userLat, userLng, targetLat, targetLng);
+  const normalizedRadius = Number(radiusMeters) || 150;
+  const normalizedAccuracy = Number.isFinite(Number(accuracyMeters)) ? Number(accuracyMeters) : null;
+  const accuracyLimit = Math.max(25, Math.min(normalizedRadius, 75));
+
   return {
-    isWithin: distance <= radiusMeters,
+    isWithin: distance <= normalizedRadius && (normalizedAccuracy === null || normalizedAccuracy <= accuracyLimit),
     distance,
-    radiusMeters
+    radiusMeters: normalizedRadius,
+    accuracyMeters: normalizedAccuracy,
+    accuracyLimit
   };
 }
 

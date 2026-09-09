@@ -23,6 +23,7 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
     logs,
     bkNotes,
     saveBKNote,
+    reportSigners,
     currentRole
   } = useAttendance();
 
@@ -355,18 +356,13 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
 
           {/* Signature Block for Official Printout */}
           <div className="pt-6 border-t border-slate-300 grid grid-cols-2 text-center text-xs text-slate-700">
-            <div>
-              <p className="text-slate-500">Sekretaris DPRD,</p>
+            {reportSigners.filter(signer => signer.active !== false).slice(0, 2).map(signer => <div key={signer.id}>
+              <p className="text-slate-500">{signer.label || signer.position},</p>
               <div className="h-16"></div>
-              <p className="font-bold text-slate-900 border-b border-slate-400 inline-block pb-0.5">Drs. H. M. Yasin, M.Si.</p>
-              <p className="text-[10px] text-slate-500">NIP. 19680315 199303 1 004</p>
-            </div>
-            <div>
-              <p className="text-slate-500">Ketua Badan Kehormatan (BK),</p>
-              <div className="h-16"></div>
-              <p className="font-bold text-slate-900 border-b border-slate-400 inline-block pb-0.5">Dr. H. Ahmad Muzani, S.H., M.H.</p>
-              <p className="text-[10px] text-slate-500">NKA. DPRD-2026-BK01</p>
-            </div>
+              <p className="font-bold text-slate-900 border-b border-slate-400 inline-block pb-0.5">{signer.name}</p>
+              {signer.rank && <p className="text-[10px] text-slate-500">{signer.rank}</p>}
+              {signer.nip && <p className="text-[10px] text-slate-500">NIP. {signer.nip}</p>}
+            </div>)}
           </div>
 
         </div>

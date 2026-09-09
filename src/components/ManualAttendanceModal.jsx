@@ -21,6 +21,7 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
   const [memberSearch, setMemberSearch] = useState('');
   const [status, setStatus] = useState('Hadir');
   const [sptNumber, setSptNumber] = useState('');
+  const [sptDate, setSptDate] = useState('');
   const [note, setNote] = useState('');
   const [operatorName, setOperatorName] = useState('Petugas Sekretariat DPRD');
   const [error, setError] = useState('');
@@ -30,20 +31,25 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
   // Sync state whenever modal is opened
   React.useEffect(() => {
     if (isOpen) {
-      setSelectedMemberId(propMemberId || (members[0]?.id || ''));
       const activeAct = activities.find(a => a.id === propActivityId) || activities.find(a => a.status === 'ACTIVE') || activities[0];
       setSelectedActivityId(propActivityId || (activeAct?.id || ''));
+      const activeParticipantIds = Array.isArray(activeAct?.participantMemberIds) ? activeAct.participantMemberIds : [];
+      const firstParticipantId = members.find(member => activeParticipantIds.includes(member.id))?.id || '';
+      setSelectedMemberId(propMemberId && activeParticipantIds.includes(propMemberId) ? propMemberId : firstParticipantId);
       setError('');
       setIsSuccess(false);
       setIsLoading(false);
       setNote('');
       setSptNumber('');
+      setSptDate('');
       setStatus('Hadir');
     }
   }, [isOpen, propActivityId, propMemberId, activities, members]);
 
   const selectedMember = getMemberById(selectedMemberId);
   const selectedActivity = activities.find(a => a.id === selectedActivityId);
+  const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
+  const participantMembers = members.filter(member => participantIds.includes(member.id));
 
   // Cek apakah anggota ini sudah absen di kegiatan ini
   const existingLog = useMemo(() =>
@@ -53,12 +59,12 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
 
   // Filter anggota berdasarkan pencarian
   const filteredMembers = useMemo(() =>
-    members.filter(m =>
+    participantMembers.filter(m =>
       m.name?.toLowerCase().includes(memberSearch.toLowerCase()) ||
       m.fraksi?.toLowerCase().includes(memberSearch.toLowerCase()) ||
       m.nip?.includes(memberSearch)
     ),
-    [members, memberSearch]
+    [participantMembers, memberSearch]
   );
 
   if (!isOpen) return null;
@@ -70,6 +76,7 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
     if (!selectedMemberId) { setError('Pilih anggota DPRD terlebih dahulu.'); return; }
     if (!selectedActivityId) { setError('Pilih agenda kegiatan terlebih dahulu.'); return; }
     if (!note.trim() && status !== 'Hadir') { setError('Alasan/Keterangan wajib diisi untuk keperluan Audit Trail.'); return; }
+    if (status === 'Dinas Luar' && (!sptNumber.trim() || !sptDate)) { setError('Nomor dan tanggal SPT wajib diisi untuk status Dinas Luar.'); return; }
 
     setIsLoading(true);
     const result = await recordManualAttendance({
@@ -79,6 +86,7 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
       note: note.trim() || `Presensi manual [${status}]`,
       operatorName,
       sptNumber: status === 'Dinas Luar' ? sptNumber : null
+      , sptDate: status === 'Dinas Luar' ? sptDate : null
     });
     setIsLoading(false);
 
@@ -144,13 +152,13 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
 
           {/* ── Pilih Anggota DPRD ── */}
           <div>
-            <label className="block font-bold text-slate-300 mb-1.5">Pilih Anggota DPRD:</label>
+              <label className="block font-bold text-slate-300 mb-1.5">Pilih Anggota DPRD Peserta Agenda:</label>
             <select
               value={selectedMemberId}
               onChange={e => setSelectedMemberId(e.target.value)}
               className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-200 font-semibold text-xs"
             >
-              {members.map(m => (
+              {participantMembers.map(m => (
                 <option key={m.id} value={m.id}>
                   {m.name} ({m.fraksi})
                 </option>
@@ -190,6 +198,8 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
                 onChange={e => setSptNumber(e.target.value)}
                 className="w-full p-2.5 bg-slate-900 border border-indigo-500/50 rounded-xl text-white text-xs font-mono"
               />
+              <label className="block font-bold text-indigo-300">Tanggal SPT:</label>
+              <input type="date" value={sptDate} onChange={e => setSptDate(e.target.value)} className="w-full p-2.5 bg-slate-900 border border-indigo-500/50 rounded-xl text-white text-xs" />
             </div>
           )}
 

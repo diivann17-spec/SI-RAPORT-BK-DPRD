@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
-import { getRaportCategory, formatLiveTimestamp } from '../utils/raportUtils';
+import { getRaportCategory, getDisciplineGrade, formatLiveTimestamp } from '../utils/raportUtils';
 import { AKD_CATEGORIES, AKD_BADGE_COLORS } from '../utils/akdUtils';
 import {
   Users,
@@ -29,6 +29,7 @@ export default function Dashboard({ onNavigate }) {
     activities,
     logs,
     getMemberRaport,
+    scoreSettings,
     currentRole,
     currentUser
   } = useAttendance();
@@ -49,6 +50,7 @@ export default function Dashboard({ onNavigate }) {
   const avgPercentage = memberStats.length
     ? Math.round(memberStats.reduce((acc, curr) => acc + curr.raport.percentage, 0) / memberStats.length)
     : 0;
+  const averageDiscipline = getDisciplineGrade(avgPercentage, scoreSettings);
 
   // Active activity today - bisa dipilih dari dropdown atau default ke agenda aktif terbaru
   const activeActivities = activities.filter(a => a.status === 'ACTIVE');
@@ -284,10 +286,10 @@ export default function Dashboard({ onNavigate }) {
       </div>
 
       {/* KPI Metric Summary Cards (2 Cols on mobile, 5 cols on desktop) */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 items-stretch">
         
         {/* Total Members */}
-        <div className="p-3.5 sm:p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="p-3.5 sm:p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm min-h-[110px]">
           <div className="flex items-center justify-between text-slate-500 mb-1.5">
             <span className="text-[10px] sm:text-xs font-semibold uppercase">Total Anggota</span>
             <Users className="w-4 h-4 text-blue-500" />
@@ -297,7 +299,7 @@ export default function Dashboard({ onNavigate }) {
         </div>
 
         {/* Green Category (81-100%) */}
-        <div className="p-3.5 sm:p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 shadow-sm">
+        <div className="p-3.5 sm:p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 shadow-sm min-h-[110px]">
           <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 mb-1.5">
             <span className="text-[10px] sm:text-xs font-bold uppercase">Hijau (81-100%)</span>
             <CheckCircle className="w-4 h-4" />
@@ -307,7 +309,7 @@ export default function Dashboard({ onNavigate }) {
         </div>
 
         {/* Yellow Category (51-80%) */}
-        <div className="p-3.5 sm:p-4 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 shadow-sm">
+        <div className="p-3.5 sm:p-4 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 shadow-sm min-h-[110px]">
           <div className="flex items-center justify-between text-amber-700 dark:text-amber-400 mb-1.5">
             <span className="text-[10px] sm:text-xs font-bold uppercase">Kuning (51-80%)</span>
             <AlertTriangle className="w-4 h-4" />
@@ -317,7 +319,7 @@ export default function Dashboard({ onNavigate }) {
         </div>
 
         {/* Red Category (0-50%) */}
-        <div className="p-3.5 sm:p-4 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800 shadow-sm">
+        <div className="p-3.5 sm:p-4 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800 shadow-sm min-h-[110px]">
           <div className="flex items-center justify-between text-rose-700 dark:text-rose-400 mb-1.5">
             <span className="text-[10px] sm:text-xs font-bold uppercase">Merah (0-50%)</span>
             <AlertOctagon className="w-4 h-4" />
@@ -327,13 +329,13 @@ export default function Dashboard({ onNavigate }) {
         </div>
 
         {/* Average Rate */}
-        <div className="col-span-2 sm:col-span-2 lg:col-span-1 p-3.5 sm:p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="col-span-2 sm:col-span-2 lg:col-span-1 p-3.5 sm:p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm min-h-[110px]">
           <div className="flex items-center justify-between text-slate-500 mb-1.5">
             <span className="text-[10px] sm:text-xs font-semibold uppercase">Rata-Rata Kehadiran</span>
             <TrendingUp className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">{avgPercentage}%</div>
-          <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5">Seluruh Rapat & Reses</p>
+          <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5">Nilai disiplin: <strong>{averageDiscipline.grade} - {averageDiscipline.label}</strong></p>
         </div>
 
       </div>
@@ -345,16 +347,16 @@ export default function Dashboard({ onNavigate }) {
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
           
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-sm space-y-3 sm:space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-emerald-500 live-indicator"></div>
+            <div className="flex flex-col gap-3 pb-3 border-b border-slate-200 dark:border-slate-800 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-center space-x-2 min-w-0">
+                <div className="w-3 h-3 rounded-full bg-emerald-500 live-indicator shrink-0"></div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">Kegiatan Sedang Dipantau (Live)</h3>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0 lg:max-w-[60%]">
                 <select
                   value={activeActivity?.id || ''}
                   onChange={(e) => setSelectedDashboardActivityId(e.target.value)}
-                  className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-[200px] truncate"
+                  className="w-full min-w-0 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-[260px] sm:max-w-[320px] truncate"
                 >
                   {activities.map(a => (
                     <option key={a.id} value={a.id}>
@@ -369,14 +371,14 @@ export default function Dashboard({ onNavigate }) {
             </div>
 
             <div className="space-y-1.5 sm:space-y-2">
-              <h4 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white leading-snug">{activeActivity?.title}</h4>
+              <h4 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white leading-snug break-words">{activeActivity?.title}</h4>
               <p className="text-xs text-slate-500 flex items-center gap-2">
                 <Calendar className="w-3.5 h-3.5 shrink-0" />
-                <span>{activeActivity?.date} • Pukul {activeActivity?.startTime} - {activeActivity?.endTime} WIB</span>
+                <span className="break-words">{activeActivity?.date} • Pukul {activeActivity?.startTime} - {activeActivity?.endTime} WIB</span>
               </p>
               <p className="text-xs text-slate-500 flex items-center gap-2">
                 <Building2 className="w-3.5 h-3.5 shrink-0" />
-                <span>{activeActivity?.locationName} (Radius: {activeActivity?.radiusMeters}m)</span>
+                <span className="break-words">{activeActivity?.locationName} (Radius: {activeActivity?.radiusMeters}m)</span>
               </p>
             </div>
 

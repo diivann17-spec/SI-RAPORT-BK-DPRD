@@ -11,6 +11,9 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
   const [activityId, setActivityId] = useState(propActivityId || '');
   const [agency, setAgency] = useState('');
   const [invitedName, setInvitedName] = useState('');
+  const [position, setPosition] = useState('');
+  const [phone, setPhone] = useState('');
+  const [participantCategory, setParticipantCategory] = useState('OPD/INSTANSI');
   const [isRepresented, setIsRepresented] = useState(false);
   const [representativeName, setRepresentativeName] = useState('');
   const [representativePosition, setRepresentativePosition] = useState('');
@@ -29,6 +32,9 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
       setIsLoading(false);
       setAgency('');
       setInvitedName('');
+      setPosition('');
+      setPhone('');
+      setParticipantCategory('OPD/INSTANSI');
       setIsRepresented(false);
       setRepresentativeName('');
       setRepresentativePosition('');
@@ -46,6 +52,7 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
   const handleSelectPredefined = (gst) => {
     setAgency(gst.agency);
     setInvitedName(gst.invitedName);
+    setPosition(gst.position || '');
   };
 
   const handleSubmit = async (e) => {
@@ -65,6 +72,9 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
       activityId,
       agency: agency.trim(),
       invitedName: invitedName.trim(),
+      position: position.trim(),
+      phone: phone.trim(),
+      participantCategory,
       isRepresented,
       representativeName: representativeName.trim(),
       representativePosition: representativePosition.trim(),
@@ -145,6 +155,16 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
 
           {/* Instansi / Dinas */}
           <div>
+            <label className="block font-bold text-slate-300 mb-1">Kategori Peserta:</label>
+            <select value={participantCategory} onChange={e => setParticipantCategory(e.target.value)} className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-200 text-xs">
+              <option value="OPD/INSTANSI">OPD / Instansi</option>
+              <option value="SEKRETARIAT/ASN">Sekretariat / ASN</option>
+              <option value="NARASUMBER">Narasumber</option>
+              <option value="TAMU/UNDANGAN">Tamu / Undangan</option>
+            </select>
+          </div>
+
+          <div>
             <label className="block font-bold text-slate-300 mb-1">Nama Instansi / OPD / Organisasi:</label>
             <input
               type="text"
@@ -165,6 +185,17 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
               onChange={e => setInvitedName(e.target.value)}
               className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-200 text-xs"
             />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold text-slate-300 mb-1">Jabatan:</label>
+              <input type="text" placeholder="Contoh: Kepala Dinas / Sekretaris" value={position} onChange={e => setPosition(e.target.value)} className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-200 text-xs" />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-300 mb-1">Nomor HP (Opsional):</label>
+              <input type="tel" placeholder="08xxxxxxxxxx" value={phone} onChange={e => setPhone(e.target.value)} className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-200 text-xs" />
+            </div>
           </div>
 
           {/* Toggle Delegasi / Perwakilan */}

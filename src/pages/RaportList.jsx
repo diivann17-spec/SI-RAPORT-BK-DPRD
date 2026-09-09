@@ -15,13 +15,14 @@ import {
 } from 'lucide-react';
 
 import { AKD_CATEGORIES } from '../utils/akdUtils';
+import * as XLSX from 'xlsx';
 
 export default function RaportList() {
   const {
     members,
     getMemberRaport,
     bkNotes,
-    currentRole
+    activities
   } = useAttendance();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,11 +30,13 @@ export default function RaportList() {
   const [selectedFraksi, setSelectedFraksi] = useState('ALL');
   const [selectedAKD, setSelectedAKD] = useState('ALL');
   const [selectedPeriodMonth, setSelectedPeriodMonth] = useState('11'); // Default November
+  const [selectedActivity, setSelectedActivity] = useState('ALL');
+  const [selectedYear, setSelectedYear] = useState('ALL');
   const [activeModalMemberId, setActiveModalMemberId] = useState(null);
 
   // Compute all member raports with selectedPeriodMonth and selectedAKD
   const memberRaports = members.map(m => {
-    const raport = getMemberRaport(m.id, selectedAKD, selectedPeriodMonth);
+    const raport = getMemberRaport(m.id, selectedAKD, selectedPeriodMonth, selectedActivity, selectedYear);
     const bkNote = bkNotes[m.id];
     return {
       member: m,
@@ -58,6 +61,22 @@ export default function RaportList() {
   });
 
   const fraksiList = Array.from(new Set(members.map(m => m.fraksi)));
+  const yearList = Array.from(new Set(activities.map(activity => String(activity.date || '').slice(0, 4)).filter(Boolean))).sort();
+
+  const exportWorkbook = () => {
+    const header = ['Nama', 'NIP', 'Fraksi', 'Komisi/AKD', 'Total Kegiatan', 'Hadir', 'Terlambat', 'Izin', 'Sakit', 'Dinas Luar', 'Tanpa Keterangan', 'Persentase'];
+    const rows = memberRaports.map(({ member, raport }) => [
+      member.name, member.nip || '', member.fraksi || '', member.komisi || '',
+      raport.totalMandatory, raport.breakdown.hadir, raport.breakdown.terlambat,
+      raport.breakdown.izin, raport.breakdown.sakit, raport.breakdown.dinas,
+      raport.breakdown.alpa, `${raport.percentage}%`
+    ]);
+    const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    worksheet['!cols'] = header.map(() => ({ wch: 20 }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Laporan Kehadiran');
+    XLSX.writeFile(workbook, `laporan-kehadiran-dprd-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -76,13 +95,10 @@ export default function RaportList() {
           </p>
         </div>
 
-        <button
-          onClick={() => window.print()}
-          className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition shrink-0"
-        >
-          <Printer className="w-4 h-4 text-emerald-400" />
-          <span>Cetak Rekap Raport</span>
-        </button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <button onClick={exportWorkbook} className="flex-1 sm:flex-none px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 transition"><FileSpreadsheet className="w-4 h-4" /> Excel (.xlsx)</button>
+          <button onClick={() => window.print()} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition"><Printer className="w-4 h-4 text-emerald-400" /> Cetak / PDF</button>
+        </div>
       </div>
 
       {/* Mobile-Friendly Category Tabs (Sesuai Mockup Screen 6) */}
@@ -166,6 +182,19 @@ export default function RaportList() {
             </select>
           </div>
 
+          <div>
+            <select value={selectedActivity} onChange={event => setSelectedActivity(event.target.value)} className="w-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700 font-semibold">
+              <option value="ALL">Semua Kegiatan</option>
+              {activities.map(activity => <option key={activity.id} value={activity.id}>{activity.title}</option>)}
+            </select>
+          </div>
+          <div>
+            <select value={selectedYear} onChange={event => setSelectedYear(event.target.value)} className="w-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700 font-semibold">
+              <option value="ALL">Semua Tahun</option>
+              {yearList.map(year => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </div>
+
         </div>
       </div>
 
@@ -207,9 +236,7 @@ export default function RaportList() {
                   <div className="min-w-0">
                     <h4 className="font-bold text-xs text-white truncate">{member.name}</h4>
                     <p className="text-[10px] text-slate-400 truncate">{member.jabatan} • {member.komisi}</p>
-                    <p className="text-[11px] font-black text-slate-200 font-mono mt-0.5">
-                      {raport.percentage}% Kehadiran
-                    </p>
+                    <p className="text-[11px] font-black text-slate-200 font-mono mt-0.5">{raport.percentage}% Kehadiran • Nilai {raport.discipline.grade}</p>
                   </div>
                 </div>
 
@@ -271,7 +298,7 @@ export default function RaportList() {
                   </td>
 
                   <td className="p-3 text-right font-mono font-extrabold text-sm text-slate-900 dark:text-white">
-                    {raport.percentage}%
+                    {raport.percentage}% <span className="text-cyan-600 dark:text-cyan-400">({raport.discipline.grade})</span>
                   </td>
 
                   <td className="p-3 text-center">

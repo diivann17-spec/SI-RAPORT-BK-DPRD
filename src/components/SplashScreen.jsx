@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Sparkles, Shield } from 'lucide-react';
 import dprdLogo from '../logo.png';
 
-export default function SplashScreen({ onFinish, duration = 5000 }) {
+export default function SplashScreen({ onFinish, duration = 5000, showTitle = true, showLoading = true }) {
   const [openingCurtain, setOpeningCurtain] = useState(false);
   const [fadeOutLogo, setFadeOutLogo] = useState(false);
   const [removeDOM, setRemoveDOM] = useState(false);
@@ -140,29 +140,31 @@ export default function SplashScreen({ onFinish, duration = 5000 }) {
           </div>
         </div>
 
-        {/* System Title */}
-        <div className="text-center space-y-2 max-w-lg">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-bold tracking-wider uppercase mb-1 shadow-md backdrop-blur-md">
-            <Shield className="w-4 h-4 text-amber-400" />
-            <span>Badan Kehormatan (BK)</span>
+        {showTitle && (
+          <div className="text-center space-y-2 max-w-lg">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-bold tracking-wider uppercase mb-1 shadow-md backdrop-blur-md">
+              <Shield className="w-4 h-4 text-amber-400" />
+              <span>Badan Kehormatan (BK)</span>
+            </div>
+
+            <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)]">
+              SI-RAPORT <span className="text-emerald-400">BK DPRD</span>
+            </h1>
+
+            <p className="text-xs sm:text-sm text-slate-200 font-semibold tracking-wide drop-shadow">
+              Sistem Informasi Absensi, Monitoring & Raport Kehadiran Anggota Dewan
+            </p>
           </div>
+        )}
 
-          <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)]">
-            SI-RAPORT <span className="text-emerald-400">BK DPRD</span>
-          </h1>
-
-          <p className="text-xs sm:text-sm text-slate-200 font-semibold tracking-wide drop-shadow">
-            Sistem Informasi Absensi, Monitoring & Raport Kehadiran Anggota Dewan
-          </p>
-        </div>
-
-        {/* Loading Bar Animasi */}
-        <div className="mt-8 flex flex-col items-center gap-2">
-          <div className="w-48 sm:w-60 h-1.5 bg-slate-900/90 rounded-full overflow-hidden border border-amber-400/30 shadow-inner">
-            <div className="h-full bg-gradient-to-r from-amber-400 via-emerald-400 to-amber-300 animate-[pulse_2s_infinite] w-full rounded-full" />
+        {showLoading && (
+          <div className="mt-8 flex flex-col items-center gap-2">
+            <div className="w-48 sm:w-60 h-1.5 bg-slate-900/90 rounded-full overflow-hidden border border-amber-400/30 shadow-inner">
+              <div className="h-full bg-gradient-to-r from-amber-400 via-emerald-400 to-amber-300 animate-[pulse_2s_infinite] w-full rounded-full" />
+            </div>
+            <span className="text-[11px] text-slate-300 font-medium tracking-wide">Mempersiapkan Ruang Sidang & Presensi...</span>
           </div>
-          <span className="text-[11px] text-slate-300 font-medium tracking-wide">Mempersiapkan Ruang Sidang & Presensi...</span>
-        </div>
+        )}
       </div>
     </div>
   );

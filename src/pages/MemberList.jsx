@@ -11,9 +11,11 @@ import {
   Upload,
   Loader2,
   Lock,
-  QrCode
+  QrCode,
+  FileSpreadsheet
 } from 'lucide-react';
 import { compressImage } from '../utils/geoUtils';
+import * as XLSX from 'xlsx';
 
 const FRAKSI_LIST = [
   'Fraksi PDI Perjuangan',
@@ -42,16 +44,25 @@ const KOMISI_LIST = [
   'Pimpinan DPRD',
 ];
 
+const AKD_MEMBERSHIP_LIST = [
+  'Pimpinan DPRD', 'Komisi I', 'Komisi II', 'Komisi III', 'Komisi IV',
+  'Badan Kehormatan (BK)', 'Badan Anggaran (Banggar)',
+  'Bapemperda', 'Fasgarwas', 'Pansus I', 'Pansus II', 'Pansus III', 'Pansus IV'
+];
+
 const EMPTY_FORM = {
   name: '',
   nip: '',
   fraksi: 'Fraksi PDI Perjuangan',
   komisi: 'Komisi I (Hukum & Pemerintahan)',
+  akdMemberships: ['Komisi I'],
   jabatan: 'Anggota DPRD',
   phone: '',
   email: '',
   photo: '',
   statusActive: true,
+  termStart: '',
+  termEnd: '',
 };
 
 export default function MemberList({ onNavigate }) {
@@ -80,6 +91,11 @@ export default function MemberList({ onNavigate }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const [importRows, setImportRows] = useState([]);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importStats, setImportStats] = useState({ total: 0, valid: 0, duplicates: 0, errors: 0 });
+  const importInputRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const openAdd = () => {
@@ -100,11 +116,14 @@ export default function MemberList({ onNavigate }) {
       nip: member.nip || '',
       fraksi: member.fraksi || FRAKSI_LIST[0],
       komisi: member.komisi || KOMISI_LIST[0],
+      akdMemberships: member.akdMemberships || [member.komisi?.replace(/\s*\(.*?\)/, '') || 'Komisi I'],
       jabatan: member.jabatan || 'Anggota DPRD',
       phone: member.phone || '',
       email: member.email || '',
       photo: member.photo || '',
       statusActive: member.statusActive !== false,
+      termStart: member.termStart || '',
+      termEnd: member.termEnd || '',
     });
     setPhotoFile(null);
     setPhotoPreview(member.photo || '');
@@ -164,6 +183,195 @@ export default function MemberList({ onNavigate }) {
     setDeletingId(null);
   };
 
+  const toggleMembership = (membership) => {
+    setFormData(previous => {
+      const current = previous.akdMemberships || [];
+      return {
+        ...previous,
+        akdMemberships: current.includes(membership)
+          ? current.filter(item => item !== membership)
+          : [...current, membership]
+      };
+    });
+  };
+
+  const normalizeImportRow = (row) => {
+    const value = (keys) => {
+      const key = Object.keys(row).find(item => keys.includes(item.toLowerCase().replace(/[\s_-]/g, '')));
+      return key ? String(row[key] ?? '').trim() : '';
+    };
+    const importedMemberships = value(['keanggotaanakd', 'akdanggota', 'akdmembership'])
+      .split(/[,;|]/).map(item => item.trim()).filter(Boolean);
+    return {
+      name: value(['nama', 'namalengkap', 'namaanggota']),
+      nip: value(['nip', 'nomorinduk']),
+      fraksi: value(['fraksi']) || FRAKSI_LIST[0],
+      komisi: value(['komisi', 'akd']) || KOMISI_LIST[0],
+      akdMemberships: importedMemberships.length ? importedMemberships : [value(['komisi', 'akd']) || KOMISI_LIST[0]],
+      jabatan: value(['jabatan']) || 'Anggota DPRD',
+      phone: value(['phone', 'nohp', 'nomorhp', 'whatsapp']),
+      email: value(['email', 'emaildinas']),
+      termStart: value(['periodemulai', 'awalperiode', 'termstart']),
+      termEnd: value(['periodeakhir', 'akhirperiode', 'termend']),
+      statusActive: true,
+    };
+  };
+
+  const buildImportPreview = (rows = [], existingRecords = []) => {
+    const sourceRows = rows.filter(row => Object.values(row || {}).some(value => String(value ?? '').trim() !== ''));
+
+    const seenNames = new Set();
+    const seenNips = new Set();
+    const preview = sourceRows.map(row => {
+      const normalized = normalizeImportRow(row);
+      const errors = [];
+
+      if (!normalized.name.trim()) {
+        errors.push('Nama wajib diisi.');
+      }
+
+      if (!normalized.fraksi.trim()) {
+        errors.push('Fraksi wajib diisi.');
+      }
+
+      if (!normalized.komisi.trim()) {
+        errors.push('Komisi / AKD wajib diisi.');
+      }
+
+      if (!normalized.jabatan.trim()) {
+        errors.push('Jabatan wajib diisi.');
+      }
+
+      const nameKey = normalized.name.trim().toLowerCase();
+      if (nameKey) {
+        const duplicateName = seenNames.has(nameKey) || existingRecords.some(item => String(item.name || '').trim().toLowerCase() === nameKey);
+        if (duplicateName) {
+          errors.push('Nama sudah terdaftar.');
+        }
+        seenNames.add(nameKey);
+      }
+
+      const nipKey = normalized.nip.trim().toLowerCase();
+      if (nipKey) {
+        const duplicateNip = seenNips.has(nipKey) || existingRecords.some(item => String(item.nip || '').trim().toLowerCase() === nipKey);
+        if (duplicateNip) {
+          errors.push('NIP sudah terdaftar.');
+        }
+        seenNips.add(nipKey);
+      }
+
+      return {
+        ...normalized,
+        errors,
+      };
+    });
+
+    const valid = preview.filter(row => row.errors.length === 0).length;
+    const duplicates = preview.filter(row => row.errors.some(error => error.includes('sudah terdaftar'))).length;
+
+    return {
+      preview,
+      stats: {
+        total: preview.length,
+        valid,
+        duplicates,
+        errors: preview.length - valid,
+      },
+    };
+  };
+
+  const downloadMemberTemplate = () => {
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ['Nama', 'NIP', 'Fraksi', 'Komisi / AKD', 'Jabatan', 'No. HP / WhatsApp', 'Email', 'Status'],
+      ['Ahmad', '123456', 'Fraksi PDI Perjuangan', 'Komisi I (Hukum & Pemerintahan)', 'Anggota DPRD', '0812xxxx', 'ahmad@dprd.go.id', 'Aktif'],
+      ['Budi', '123457', 'Fraksi Gerindra', 'Komisi II (Perekonomian & Keuangan)', 'Anggota DPRD', '0813xxxx', 'budi@dprd.go.id', 'Aktif'],
+    ]);
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Template Anggota DPRD');
+    XLSX.writeFile(workbook, 'template-anggotadprd.xlsx');
+  };
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      try {
+        const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+        const lines = [];
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+          const page = await pdf.getPage(pageNumber);
+          const content = await page.getTextContent();
+          content.items.forEach(item => { if (item.str?.trim()) lines.push(item.str.trim()); });
+        }
+        if (lines.length === 0) {
+          const { createWorker } = await import('tesseract.js');
+          const worker = await createWorker('ind');
+          for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+            const page = await pdf.getPage(pageNumber);
+            const viewport = page.getViewport({ scale: 2 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            const result = await worker.recognize(canvas.toDataURL('image/png'));
+            result.data.text.split(/\r?\n/).forEach(line => { if (line.trim()) lines.push(line.trim()); });
+          }
+          await worker.terminate();
+        }
+        const rows = lines
+          .filter(line => line.length > 3 && !/^(daftar|anggota|nip|fraksi|komisi|jabatan|no\.?$)/i.test(line))
+          .map(line => normalizeImportRow({ Nama: line }));
+        setImportRows(rows);
+        setIsImportOpen(true);
+      } catch {
+        setSaveMsg('PDF tidak dapat diekstrak. Pastikan PDF berisi teks, bukan hasil scan gambar.');
+      }
+      event.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = loadEvent => {
+      try {
+        const workbook = XLSX.read(loadEvent.target.result, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        const preview = buildImportPreview(rows, members);
+        setImportRows(preview.preview);
+        setImportStats(preview.stats);
+        setIsImportOpen(true);
+      } catch {
+        setSaveMsg('File tidak dapat dibaca. Gunakan Excel atau CSV dengan kolom Nama, Fraksi, Komisi, Jabatan.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    event.target.value = '';
+  };
+
+  const handleImportSave = async () => {
+    setIsImporting(true);
+    const refreshedPreview = buildImportPreview(importRows, members);
+    const validRows = refreshedPreview.preview.filter(row => row.errors.length === 0);
+
+    if (validRows.length === 0) {
+      setImportStats(refreshedPreview.stats);
+      setSaveMsg('Tidak ada data valid untuk disimpan. Periksa kembali preview import Anda.');
+      setIsImporting(false);
+      return;
+    }
+
+    for (const row of validRows) await addMember(row);
+    setIsImporting(false);
+    setImportRows([]);
+    setImportStats({ total: 0, valid: 0, duplicates: 0, errors: 0 });
+    setIsImportOpen(false);
+  };
+
+  const updateImportRow = (index, field, value) => {
+    setImportRows(previous => previous.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row));
+  };
+
   // Navigasi ke Halaman Kartu Anggota
   const handleViewCard = (memberId) => {
     setActiveMemberId(memberId);
@@ -203,10 +411,21 @@ export default function MemberList({ onNavigate }) {
           </p>
         </div>
         {canManageMembers && (
-          <button onClick={openAdd}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow shrink-0">
-            <Plus className="w-4 h-4" /> Tambah Anggota DPRD
-          </button>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button onClick={downloadMemberTemplate}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow">
+              <FileSpreadsheet className="w-4 h-4" /> Download Template Excel
+            </button>
+            <button onClick={() => importInputRef.current?.click()}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow">
+              <FileSpreadsheet className="w-4 h-4" /> Import Excel/CSV/PDF
+            </button>
+            <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv,.tsv,.pdf" onChange={handleImportFile} className="hidden" />
+            <button onClick={openAdd}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow">
+              <Plus className="w-4 h-4" /> Tambah Anggota DPRD
+            </button>
+          </div>
         )}
       </div>
 
@@ -262,7 +481,7 @@ export default function MemberList({ onNavigate }) {
                 <p className="text-[10px] text-slate-400 font-mono">NIP: {m.nip || '—'}</p>
                 <span className="inline-block px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 font-bold text-[10px]">{m.fraksi}</span>
                 <p className="text-[10px] text-slate-500">{m.jabatan}</p>
-                <p className="text-[10px] text-slate-400">{m.komisi?.replace(/\(.*?\)/, '').trim()}</p>
+                <p className="text-[10px] text-slate-400">{(m.akdMemberships || [m.komisi]).join(' • ')}</p>
               </div>
             </div>
             <div className="px-4 pb-4 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3">
@@ -354,6 +573,16 @@ export default function MemberList({ onNavigate }) {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Keanggotaan AKD (dapat lebih dari satu)</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 p-3 bg-slate-800 rounded-xl border border-slate-700">
+                  {AKD_MEMBERSHIP_LIST.map(membership => {
+                    const selected = formData.akdMemberships?.includes(membership);
+                    return <label key={membership} className={`flex items-center gap-1.5 p-1.5 rounded-lg text-[10px] cursor-pointer ${selected ? 'bg-emerald-600/20 text-emerald-300' : 'text-slate-400'}`}><input type="checkbox" checked={selected} onChange={() => toggleMembership(membership)} className="accent-emerald-500" />{membership}</label>;
+                  })}
+                </div>
+              </div>
+
               {/* Fraksi & Komisi */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -381,6 +610,11 @@ export default function MemberList({ onNavigate }) {
                   onChange={e => setFormData(p => ({ ...p, jabatan: e.target.value }))}
                   placeholder="Contoh: Anggota Komisi I / Wakil Ketua BK"
                   className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white" />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2"><label className="block text-slate-400 mb-1 font-semibold">Periode Jabatan</label><div className="grid grid-cols-2 gap-2"><input type="date" value={formData.termStart} onChange={e => setFormData(p => ({ ...p, termStart: e.target.value }))} className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white" /><input type="date" value={formData.termEnd} onChange={e => setFormData(p => ({ ...p, termEnd: e.target.value }))} className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white" /></div></div>
+                <label className="flex items-center gap-2 self-end p-2.5 text-slate-300 font-semibold"><input type="checkbox" checked={formData.statusActive !== false} onChange={e => setFormData(p => ({ ...p, statusActive: e.target.checked }))} className="accent-emerald-500" /> Anggota aktif</label>
               </div>
 
               {/* Kontak */}
@@ -419,6 +653,32 @@ export default function MemberList({ onNavigate }) {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {isImportOpen && canManageMembers && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full shadow-2xl text-white max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-slate-800">
+              <div>
+                <h3 className="font-bold">Preview Import Data Anggota</h3>
+                <p className="text-xs text-slate-400">Periksa data sebelum disimpan ke database.</p>
+              </div>
+              <button onClick={() => setIsImportOpen(false)} className="p-2 text-slate-400"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="px-5 py-3 border-b border-slate-800 bg-slate-950/60">
+              <div className="flex flex-wrap gap-2 text-[10px] font-semibold">
+                <span className="px-2 py-1 rounded-full bg-slate-800 text-slate-300">Total Data: {importStats.total}</span>
+                <span className="px-2 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">Valid: {importStats.valid}</span>
+                <span className="px-2 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-800">Duplikat: {importStats.duplicates}</span>
+                <span className="px-2 py-1 rounded-full bg-rose-950 text-rose-300 border border-rose-800">Error: {importStats.errors}</span>
+              </div>
+            </div>
+            <div className="p-5 overflow-auto max-h-[60vh]">
+              <table className="w-full text-xs"><thead><tr className="text-left text-slate-400 border-b border-slate-700"><th className="p-2">Nama</th><th className="p-2">Fraksi</th><th className="p-2">Komisi / AKD</th><th className="p-2">Jabatan</th><th className="p-2">Kontak</th><th className="p-2">Status</th></tr></thead><tbody>{importRows.map((row, index) => <tr key={`${row.name}-${index}`} className={`border-b border-slate-800 ${row.errors.length ? 'bg-rose-950/20' : 'bg-emerald-950/10'}`}><td className="p-2"><input value={row.name} onChange={event => updateImportRow(index, 'name', event.target.value)} className="w-40 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2"><input value={row.fraksi} onChange={event => updateImportRow(index, 'fraksi', event.target.value)} className="w-40 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2"><input value={row.komisi} onChange={event => updateImportRow(index, 'komisi', event.target.value)} className="w-44 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2"><input value={row.jabatan} onChange={event => updateImportRow(index, 'jabatan', event.target.value)} className="w-36 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2 text-slate-400">{row.phone || row.email || '-'}</td><td className="p-2 text-[10px]">{row.errors.length ? <span className="text-rose-300 font-bold">{row.errors[0]}</span> : <span className="text-emerald-300 font-bold">Valid</span>}</td></tr>)}</tbody></table>
+            </div>
+            <div className="p-5 border-t border-slate-800 flex justify-between items-center"><span className="text-xs text-slate-400">{importRows.length} baris valid siap diimport</span><div className="flex gap-2"><button onClick={() => setIsImportOpen(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-bold">Batal</button><button onClick={handleImportSave} disabled={isImporting} className="px-4 py-2 rounded-xl bg-emerald-600 text-xs font-bold">{isImporting ? 'Menyimpan...' : 'Simpan Semua'}</button></div></div>
           </div>
         </div>
       )}

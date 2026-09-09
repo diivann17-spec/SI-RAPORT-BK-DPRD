@@ -15,16 +15,18 @@ import {
   Info,
   AlertTriangle,
   Terminal,
-  Loader2
+  Loader2, Plus, Trash2, Edit3
 } from 'lucide-react';
 
 export default function Settings() {
-  const { resetSystemData, members, activities, logs, auditLogs, bkNotes } = useAttendance();
+  const { resetSystemData, members, activities, logs, auditLogs, bkNotes, scoreSettings, updateScoreSettings, reportSigners, saveReportSigner, deleteReportSigner, isAdmin } = useAttendance();
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [seedStatus, setSeedStatus] = useState('idle'); // idle | loading | success | error
   const [seedCount, setSeedCount] = useState(0);
   const [seedError, setSeedError] = useState('');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [scoreForm, setScoreForm] = useState(scoreSettings);
+  const [signerForm, setSignerForm] = useState({ label: 'Mengetahui', name: '', position: '', rank: '', nip: '', active: true });
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -36,6 +38,8 @@ export default function Settings() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  useEffect(() => setScoreForm(scoreSettings), [scoreSettings]);
 
   const handleSeedFirestore = async () => {
     if (!isOnline) {
@@ -61,6 +65,15 @@ export default function Settings() {
     }
   };
 
+  const editSigner = signer => setSignerForm({ ...signer });
+  const resetSignerForm = () => setSignerForm({ label: 'Mengetahui', name: '', position: '', rank: '', nip: '', active: true });
+  const submitSigner = async event => {
+    event.preventDefault();
+    const result = await saveReportSigner(signerForm);
+    if (result.success) resetSignerForm();
+    else window.alert(result.message);
+  };
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
 
@@ -68,6 +81,13 @@ export default function Settings() {
       <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 text-white shadow-xl">
         <h1 className="text-xl font-extrabold text-white">Pengaturan Sistem & Firebase Backend</h1>
         <p className="text-xs text-slate-400 mt-1">Konfigurasi Cloud Firestore, Authentication, Storage & sinkronisasi data ke database live.</p>
+      </div>
+
+      {/* Firebase Connection Status */}
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <div><h3 className="font-bold text-sm text-slate-900 dark:text-white">Pengaturan Nilai e-RAPORT</h3><p className="text-xs text-slate-500 mt-1">Ambang persentase untuk nilai disiplin A sampai E.</p></div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{[['excellent', 'A - Sangat Baik'], ['good', 'B - Baik'], ['fair', 'C - Cukup'], ['poor', 'D - Kurang']].map(([key, label]) => <label key={key} className="text-xs text-slate-500">{label}<input type="number" min="0" max="100" value={scoreForm[key] ?? ''} onChange={event => setScoreForm({ ...scoreForm, [key]: event.target.value })} className="mt-1 w-full p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white" /></label>)}</div>
+        <div className="flex items-center justify-between"><span className="text-[11px] text-slate-400">Nilai E otomatis di bawah ambang D.</span><button disabled={!isAdmin} onClick={async () => { const result = await updateScoreSettings(scoreForm); setSavedSuccess(result.success); }} className="px-4 py-2 rounded-xl bg-emerald-600 disabled:bg-slate-600 text-white text-xs font-bold">Simpan Nilai</button></div>
       </div>
 
       {/* Firebase Connection Status */}
@@ -96,6 +116,19 @@ export default function Settings() {
           <div className="flex gap-3"><span className="text-slate-400 w-32 shrink-0">Analytics:</span><span>{firebaseConfig.measurementId}</span></div>
           <div className="flex gap-3"><span className="text-slate-400 w-32 shrink-0">API Key:</span><span className="truncate max-w-xs text-amber-600 dark:text-amber-400">{firebaseConfig.apiKey?.slice(0, 20)}••••••••</span></div>
         </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <div><h3 className="font-bold text-sm text-slate-900 dark:text-white">Master Penandatangan Laporan</h3><p className="text-xs text-slate-500 mt-1">Data aktif digunakan otomatis pada LPJ dan laporan cetak.</p></div>
+        <form onSubmit={submitSigner} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input value={signerForm.label} onChange={e => setSignerForm({ ...signerForm, label: e.target.value })} placeholder="Label, misalnya Mengetahui" className="p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs" />
+          <input required value={signerForm.name} onChange={e => setSignerForm({ ...signerForm, name: e.target.value })} placeholder="Nama penandatangan" className="p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs" />
+          <input required value={signerForm.position} onChange={e => setSignerForm({ ...signerForm, position: e.target.value })} placeholder="Jabatan" className="p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs" />
+          <input value={signerForm.rank} onChange={e => setSignerForm({ ...signerForm, rank: e.target.value })} placeholder="Pangkat/Golongan" className="p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs" />
+          <input value={signerForm.nip} onChange={e => setSignerForm({ ...signerForm, nip: e.target.value })} placeholder="NIP" className="p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs" />
+          <div className="flex gap-2"><button disabled={!isAdmin} className="flex-1 py-2 rounded-xl bg-emerald-600 disabled:bg-slate-500 text-white text-xs font-bold"><Plus className="inline w-3.5 h-3.5 mr-1" />{signerForm.id ? 'Simpan Perubahan' : 'Tambah Penandatangan'}</button><button type="button" onClick={resetSignerForm} className="px-3 rounded-xl bg-slate-200 dark:bg-slate-700 text-xs">Reset</button></div>
+        </form>
+        <div className="space-y-2">{reportSigners.map(signer => <div key={signer.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${signer.active === false ? 'opacity-50 border-slate-200 dark:border-slate-800' : 'border-slate-200 dark:border-slate-700'}`}><div className="min-w-0"><p className="text-[10px] text-amber-500 font-bold uppercase">{signer.label}</p><p className="font-bold text-xs text-slate-900 dark:text-white truncate">{signer.name}</p><p className="text-[10px] text-slate-500 truncate">{signer.position} {signer.rank ? `• ${signer.rank}` : ''} {signer.nip ? `• NIP ${signer.nip}` : ''}</p></div><div className="flex gap-1"><button disabled={!isAdmin} onClick={() => editSigner(signer)} className="p-2 text-blue-500 disabled:opacity-40" title="Edit"><Edit3 className="w-4 h-4" /></button><button disabled={!isAdmin} onClick={() => deleteReportSigner(signer.id)} className="p-2 text-rose-500 disabled:opacity-40" title="Nonaktifkan"><Trash2 className="w-4 h-4" /></button></div></div>)}</div>
       </div>
 
       {/* Seed Data to Firestore */}

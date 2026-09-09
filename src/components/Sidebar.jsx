@@ -11,7 +11,12 @@ import {
   Settings,
   CreditCard,
   AlertTriangle,
-  LogOut
+  LogOut,
+  Mail,
+  BarChart3,
+  Bell,
+  DoorOpen,
+  FolderArchive
 } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab }) {
@@ -66,9 +71,51 @@ export default function Sidebar({ activeTab, setActiveTab }) {
       roles: ['PETUGAS_BK', 'SECRETARIAT_ADMIN', 'ANGGOTA_DPRD']
     },
     {
+      id: 'reports',
+      label: 'Laporan Terintegrasi',
+      icon: BarChart3,
+      roles: ['PETUGAS_BK', 'SECRETARIAT_ADMIN', 'ANGGOTA_DPRD']
+    },
+    {
+      id: 'calendar',
+      label: 'Kalender Agenda',
+      icon: Calendar,
+      roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK', 'ANGGOTA_DPRD']
+    },
+    {
+      id: 'archive',
+      label: 'Arsip Digital',
+      icon: FolderArchive,
+      roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK', 'ANGGOTA_DPRD']
+    },
+    {
+      id: 'notifications',
+      label: 'Pusat Notifikasi',
+      icon: Bell,
+      roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK', 'ANGGOTA_DPRD']
+    },
+    {
+      id: 'invitations',
+      label: 'Undangan & Amplop',
+      icon: Mail,
+      roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
+    },
+    {
       id: 'members',
       label: 'Data Anggota DPRD',
       icon: Users,
+      roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
+    },
+    {
+      id: 'personnel',
+      label: 'Personel Sekretariat DPRD',
+      icon: Users,
+      roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
+    },
+    {
+      id: 'rooms',
+      label: 'Master Ruangan',
+      icon: DoorOpen,
       roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
     },
     {
@@ -94,17 +141,17 @@ export default function Sidebar({ activeTab, setActiveTab }) {
   const filteredMenu = menuItems.filter(item => item.roles.includes(currentRole));
 
   return (
-    <aside className="no-print hidden md:block w-full md:w-64 bg-slate-900 text-slate-300 border-r border-slate-800 shrink-0">
+    <aside className="no-print hidden md:block w-full md:w-72 bg-slate-900 text-slate-300 border-r border-slate-800 shrink-0">
       <div className="p-4">
 
         {/* Role Identity Tag */}
-        <div className="mb-6 p-3 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-lg bg-emerald-950 border border-emerald-700/60 flex items-center justify-center text-emerald-400 font-bold text-sm">
+        <div className="mb-6 p-3 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-lg bg-emerald-950 border border-emerald-700/60 flex items-center justify-center text-emerald-400 font-bold text-sm shrink-0">
             BK
           </div>
-          <div>
-            <p className="text-xs text-slate-400 font-medium">Mode Pengguna</p>
-            <p className="text-xs font-bold text-amber-300 truncate">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400 font-medium">Mode Pengguna</p>
+            <p className="text-xs font-bold text-amber-300 leading-tight break-words">
               {currentRole === 'PETUGAS_BK' && 'Badan Kehormatan (BK)'}
               {currentRole === 'PETUGAS_SCAN' && 'Operator Laptop Scan'}
               {currentRole === 'ANGGOTA_DPRD' && 'Aplikasi Anggota'}
@@ -122,17 +169,17 @@ export default function Sidebar({ activeTab, setActiveTab }) {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${isActive
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition ${isActive
                     ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-900/30'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                   }`}
               >
-                <div className="flex items-center space-x-3">
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                  <span>{item.label}</span>
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <span className="truncate text-left leading-snug">{item.label}</span>
                 </div>
                 {item.badge && (
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${item.badgeColor || 'bg-slate-800 text-slate-300 border border-slate-700'}`}>
+                  <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${item.badgeColor || 'bg-slate-800 text-slate-300 border border-slate-700'}`}>
                     {item.badge}
                   </span>
                 )}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import SplashScreen from '../components/SplashScreen';
 import { useAttendance } from '../context/AttendanceContext';
 import { isWithinRadius, formatDistance } from '../utils/geoUtils';
 import { calculateAttendanceStatus } from '../utils/raportUtils';
@@ -29,21 +30,26 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
     members,
     logs,
     recordAttendance,
+    checkoutAttendance,
     recordGuestAttendance,
     loading: ctxLoading
   } = useAttendance();
 
   // ────── State ──────
   const [selectedActivityId, setSelectedActivityId] = useState(initialActivityId || '');
-  const [participantType, setParticipantType] = useState('INTERNAL');
+  const [participantType, setParticipantType] = useState(() => new URLSearchParams(window.location.search).get('type') === 'opd' ? 'EXTERNAL' : 'INTERNAL');
 
   // Form Anggota DPRD
   const [selectedMemberId, setSelectedMemberId] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
+  const [invitationToken] = useState(() => new URLSearchParams(window.location.search).get('token') || '');
+  const [invitationGuestId] = useState(() => new URLSearchParams(window.location.search).get('guestId') || null);
 
   // Form Tamu OPD
-  const [agency, setAgency] = useState('');
-  const [invitedName, setInvitedName] = useState('');
+  const [agency, setAgency] = useState(() => new URLSearchParams(window.location.search).get('agency') || '');
+  const [invitedName, setInvitedName] = useState(() => new URLSearchParams(window.location.search).get('name') || '');
+  const [position, setPosition] = useState(() => new URLSearchParams(window.location.search).get('position') || '');
+  const [participantCategory, setParticipantCategory] = useState(() => new URLSearchParams(window.location.search).get('category') || 'OPD/INSTANSI');
   const [isRepresented, setIsRepresented] = useState(false);
   const [representativeName, setRepresentativeName] = useState('');
   const [representativePosition, setRepresentativePosition] = useState('');
@@ -66,6 +72,15 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
 
   // UI
   const [showActivityPicker, setShowActivityPicker] = useState(false);
+  const [showAttendanceSplash, setShowAttendanceSplash] = useState(true);
+
+  useEffect(() => {
+    const splashTimer = setTimeout(() => {
+      setShowAttendanceSplash(false);
+    }, 2200);
+
+    return () => clearTimeout(splashTimer);
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -91,6 +106,16 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
     }
   }, [activities]);
 
+  // QR undangan individual membawa token ACTIVITY_TOKEN:MEMBER_ID.
+  // Anggota langsung dipilih, tetapi tetap harus mengonfirmasi sebelum absen.
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('token') || '';
+    const memberId = token.includes(':') ? token.slice(token.lastIndexOf(':') + 1) : '';
+    if (memberId && members.some(member => member.id === memberId)) {
+      setSelectedMemberId(memberId);
+    }
+  }, [members]);
+
   // Auto-fetch GPS
   useEffect(() => {
     fetchGPS();
@@ -104,14 +129,9 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
     setGeoError('');
 
     if (!navigator.geolocation) {
-      setGeoError('GPS tidak didukung browser ini. Lokasi perkiraan digunakan.');
+      setGeoError('GPS tidak didukung browser ini. Absensi hanya dapat dilakukan ketika lokasi perangkat tersedia dan akurat.');
       setIsLocating(false);
-      if (selectedActivity) {
-        setUserLocation({
-          lat: Number(selectedActivity.targetLat) || -6.2,
-          lng: Number(selectedActivity.targetLng) || 106.8,
-        });
-      }
+      setUserLocation(null);
       return;
     }
 
@@ -126,14 +146,9 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
         setGeoError('');
       },
       () => {
-        setGeoError('Akses GPS ditolak. Aktifkan izin lokasi untuk verifikasi GPS.');
+        setGeoError('Akses GPS ditolak atau lokasi tidak bisa dideteksi. Aktifkan izin lokasi agar absensi dapat diverifikasi di sekitar ruang rapat/sekretariat DPRD.');
         setIsLocating(false);
-        if (selectedActivity) {
-          setUserLocation({
-            lat: Number(selectedActivity.targetLat) + 0.00003,
-            lng: Number(selectedActivity.targetLng) + 0.00003,
-          });
-        }
+        setUserLocation(null);
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     );
@@ -146,39 +161,83 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
         Number(userLocation.lng),
         Number(selectedActivity.targetLat) || 0,
         Number(selectedActivity.targetLng) || 0,
-        Number(selectedActivity.radiusMeters) || 150
+        Number(selectedActivity.radiusMeters) || 150,
+        Number(userLocation.accuracy) || null
       )
-    : { isWithin: true, distance: 0, radiusMeters: Number(selectedActivity?.radiusMeters) || 150 };
+    : { isWithin: false, distance: null, radiusMeters: Number(selectedActivity?.radiusMeters) || 150, accuracyMeters: null, accuracyLimit: 25 };
 
   const timeCalc = selectedActivity
     ? calculateAttendanceStatus(selectedActivity, now)
     : { status: 'Hadir', message: 'Tepat Waktu', isExpired: false, isLate: false };
 
-  const filteredMembers = members.filter(m =>
+  const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
+  const participantMembers = members.filter(member => participantIds.includes(member.id));
+  const filteredMembers = participantMembers.filter(m =>
     !memberSearch ||
     m.name?.toLowerCase().includes(memberSearch.toLowerCase()) ||
     m.fraksi?.toLowerCase().includes(memberSearch.toLowerCase())
   );
 
   // Cek apakah member sudah absen di agenda ini
-  const alreadyCheckedIn = selectedMemberId && selectedActivity
-    ? logs.some(l => l.memberId === selectedMemberId && l.activityId === selectedActivity.id)
-    : false;
+  const existingAttendance = selectedMemberId && selectedActivity
+    ? logs.find(l => l.memberId === selectedMemberId && l.activityId === selectedActivity.id && l.participantType !== 'EXTERNAL')
+    : null;
+  const alreadyCheckedIn = Boolean(existingAttendance);
+  const alreadyCheckedOut = Boolean(existingAttendance?.checkOutAt);
 
   // ────── Submit ──────
   const handleCheckIn = async (e) => {
     e.preventDefault();
     if (!selectedActivity) return;
+
+    if (participantType === 'INTERNAL') {
+      if (!userLocation) {
+        setSubmitError('Akses GPS belum tersedia. Izinkan lokasi perangkat agar absensi dapat diverifikasi di sekitar ruang rapat atau sekretariat DPRD Kabupaten Cirebon.');
+        return;
+      }
+      if (!radiusCheck.isWithin) {
+        if (Number.isFinite(Number(radiusCheck.accuracyMeters)) && Number(radiusCheck.accuracyMeters) > Number(radiusCheck.accuracyLimit || 25)) {
+          setSubmitError(`Sinyal GPS belum cukup akurat. Akurasi saat ini ${radiusCheck.accuracyMeters} meter, sedangkan batas aman untuk zona ini adalah ${radiusCheck.accuracyLimit} meter. Pastikan Anda berada di sekitar ruang rapat atau sekretariat DPRD Kabupaten Cirebon.`);
+          return;
+        }
+        setSubmitError(`Absensi ditolak. Anda berada ${formatDistance(radiusCheck.distance)} dari lokasi agenda, di luar radius ${radiusCheck.radiusMeters} meter. Pastikan Anda berada di sekitar ruang rapat atau sekretariat DPRD Kabupaten Cirebon.`);
+        return;
+      }
+    }
+
+    if (participantType === 'INTERNAL' && alreadyCheckedIn) {
+      if (alreadyCheckedOut) {
+        setSubmitError('Absensi anggota ini sudah selesai. Check-out hanya dapat dilakukan satu kali.');
+        return;
+      }
+      if (!window.confirm('Konfirmasi Check-out sekarang? Waktu meninggalkan kegiatan akan dicatat otomatis.')) return;
+      setIsSubmitting(true);
+      const checkoutResult = await checkoutAttendance({
+        activityId: selectedActivity.id,
+        memberId: selectedMemberId,
+        method: 'QR_AGENDA',
+        operatorName: 'Mandiri via QR Agenda'
+      });
+      setIsSubmitting(false);
+      if (checkoutResult.success) setSubmitSuccess(checkoutResult.log);
+      else setSubmitError(checkoutResult.message || 'Gagal menyimpan Check-out.');
+      return;
+    }
     if (timeCalc.isExpired) {
       setSubmitError('Agenda telah selesai. QR Code tidak dapat digunakan lagi.');
+      return;
+    }
+    const invitedMemberId = invitationToken.includes(':') ? invitationToken.slice(invitationToken.lastIndexOf(':') + 1) : '';
+    if (invitedMemberId && selectedMemberId !== invitedMemberId) {
+      setSubmitError('QR undangan ini terikat pada nama peserta tertentu.');
       return;
     }
 
     setIsSubmitting(true);
     setSubmitError('');
 
-    const currentLat = userLocation ? Number(userLocation.lat) : Number(selectedActivity.targetLat);
-    const currentLng = userLocation ? Number(userLocation.lng) : Number(selectedActivity.targetLng);
+    const currentLat = Number(userLocation.lat);
+    const currentLng = Number(userLocation.lng);
     const currentDist = radiusCheck ? Math.round(radiusCheck.distance) : 0;
 
     let res;
@@ -189,12 +248,6 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
         setIsSubmitting(false);
         return;
       }
-      if (alreadyCheckedIn) {
-        setSubmitError('Anda sudah melakukan presensi untuk agenda ini sebelumnya.');
-        setIsSubmitting(false);
-        return;
-      }
-
       // Validasi 1 HP / Perangkat 1x Absen
       const deviceCheck = validateDeviceSingleAttendance(selectedActivity.id, selectedMemberId, logs);
       if (!deviceCheck.allowed) {
@@ -211,10 +264,11 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
         lat: currentLat,
         lng: currentLng,
         distanceMeters: currentDist
+        , invitationToken
       });
     } else {
-      if (!agency.trim() || !invitedName.trim()) {
-        setSubmitError('Lengkapi data Instansi dan Nama Pejabat yang diundang.');
+      if (!agency.trim() || !invitedName.trim() || !position.trim()) {
+        setSubmitError('Lengkapi data Instansi, Jabatan, dan Nama Pejabat yang diundang.');
         setIsSubmitting(false);
         return;
       }
@@ -228,9 +282,13 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
         activityId: selectedActivity.id,
         agency: agency.trim(),
         invitedName: invitedName.trim(),
+        position: position.trim(),
+        participantCategory,
+        guestId: invitationGuestId,
         isRepresented,
         representativeName: representativeName.trim(),
-        representativePosition: representativePosition.trim()
+        representativePosition: representativePosition.trim(),
+        invitationToken
       });
     }
 
@@ -249,6 +307,17 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
   };
 
   // ────── Loading State ──────
+  if (showAttendanceSplash) {
+    return (
+      <SplashScreen
+        onFinish={() => setShowAttendanceSplash(false)}
+        showTitle={false}
+        showLoading={false}
+        duration={3000}
+      />
+    );
+  }
+
   if (ctxLoading && activities.length === 0) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4 text-slate-300">
@@ -287,14 +356,6 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
               <div className="text-xs font-bold font-mono text-emerald-400">{now.toLocaleTimeString('id-ID')} WIB</div>
               <div className="text-[10px] text-slate-500">{now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
             </div>
-            {onBackToApp && (
-              <button
-                onClick={onBackToApp}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 transition"
-              >
-                Masuk Aplikasi
-              </button>
-            )}
           </div>
         </div>
       </header>
@@ -431,9 +492,14 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
                 <span className="font-bold text-emerald-400">{submitSuccess.status}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Waktu Presensi:</span>
-                <span className="font-mono text-slate-300">{new Date(submitSuccess.timestamp).toLocaleTimeString('id-ID')} WIB</span>
+                <span className="text-slate-400">Check-in:</span>
+                <span className="font-mono text-slate-300">{new Date(submitSuccess.checkInAt || submitSuccess.timestamp).toLocaleTimeString('id-ID')} WIB</span>
               </div>
+              {submitSuccess.checkOutAt && <>
+                <div className="flex justify-between"><span className="text-slate-400">Check-out:</span><span className="font-mono text-slate-300">{new Date(submitSuccess.checkOutAt).toLocaleTimeString('id-ID')} WIB</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Durasi:</span><span className="font-bold text-emerald-400">{Math.floor((submitSuccess.durationMinutes || 0) / 60)} Jam {(submitSuccess.durationMinutes || 0) % 60} Menit</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Status:</span><span className="font-bold text-amber-300">{submitSuccess.checkoutStatus}</span></div>
+              </>}
               <div className="flex justify-between">
                 <span className="text-slate-400">Agenda:</span>
                 <span className="text-slate-300 truncate ml-4 text-right">{selectedActivity?.title}</span>
@@ -448,6 +514,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
                   setMemberSearch('');
                   setAgency('');
                   setInvitedName('');
+                  setPosition('');
                   setIsRepresented(false);
                   setRepresentativeName('');
                   setRepresentativePosition('');
@@ -457,15 +524,6 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
                 Isi Presensi Peserta Lainnya
               </button>
 
-              {onBackToApp && (
-                <button
-                  type="button"
-                  onClick={onBackToApp}
-                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-2xl text-xs transition border border-slate-700"
-                >
-                  Buka Dashboard Utama SI-RAPORT
-                </button>
-              )}
             </div>
 
             <div className="flex items-center justify-center gap-2 text-[10px] text-slate-500">
@@ -475,7 +533,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
           </div>
         ) : (
           /* ── FORM PRESENSI ── */
-          !timeCalc.isExpired && selectedActivity && (
+          (!timeCalc.isExpired || (participantType === 'INTERNAL' && alreadyCheckedIn && !alreadyCheckedOut)) && selectedActivity && (
             <form onSubmit={handleCheckIn} className="p-4 sm:p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4 text-xs">
               
               {/* Toggle Tipe Peserta */}
@@ -576,6 +634,27 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
               ) : (
                 /* ── Form Eksternal: Tamu OPD ── */
                 <div className="space-y-3">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1.5">Jabatan: <span className="text-rose-400">*</span></label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: Kepala Dinas / Sekretaris / Kabid"
+                      value={position}
+                      onChange={e => setPosition(e.target.value)}
+                      className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs focus:border-teal-500 outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1.5">Kategori Peserta:</label>
+                    <select value={participantCategory} onChange={e => setParticipantCategory(e.target.value)} className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs">
+                      <option value="OPD/INSTANSI">OPD / Instansi</option>
+                      <option value="SEKRETARIAT/ASN">Sekretariat / ASN</option>
+                      <option value="NARASUMBER">Narasumber</option>
+                      <option value="TAMU/UNDANGAN">Tamu / Undangan</option>
+                    </select>
+                  </div>
                   <div>
                     <label className="block font-bold text-slate-300 mb-1.5">Nama Instansi / OPD / Organisasi: <span className="text-rose-400">*</span></label>
                     <input
@@ -705,8 +784,8 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
               {/* ── Submit Button ── */}
               <button
                 type="submit"
-                disabled={isSubmitting || timeCalc.isNotStarted || timeCalc.isExpired || alreadyCheckedIn}
-                className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed text-white font-black rounded-2xl text-sm shadow-xl transition flex items-center justify-center gap-2"
+                disabled={isSubmitting || timeCalc.isNotStarted || (participantType === 'INTERNAL' && alreadyCheckedOut)}
+                className={`w-full py-4 ${alreadyCheckedIn ? 'bg-amber-600 hover:bg-amber-500' : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500'} disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed text-white font-black rounded-2xl text-sm shadow-xl transition flex items-center justify-center gap-2`}
               >
                 {isSubmitting ? (
                   <>
@@ -717,6 +796,16 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
                   <>
                     <Clock className="w-4 h-4" />
                     <span>Absensi Belum Dibuka ({selectedActivity.startTime} WIB)</span>
+                  </>
+                ) : alreadyCheckedOut ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Absensi Sudah Selesai</span>
+                  </>
+                ) : alreadyCheckedIn ? (
+                  <>
+                    <Clock className="w-4 h-4" />
+                    <span>CHECK-OUT SEKARANG</span>
                   </>
                 ) : timeCalc.isExpired ? (
                   <>
