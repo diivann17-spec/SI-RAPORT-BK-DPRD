@@ -53,9 +53,11 @@ const AKD_MEMBERSHIP_LIST = [
 const EMPTY_FORM = {
   name: '',
   nip: '',
+  username: '',
+  password: '',
   fraksi: 'Fraksi PDI Perjuangan',
-  komisi: 'Komisi I (Hukum & Pemerintahan)',
-  akdMemberships: ['Komisi I'],
+  komisi: '',
+  akdMemberships: [],
   jabatan: 'Anggota DPRD',
   phone: '',
   email: '',
@@ -94,6 +96,7 @@ export default function MemberList({ onNavigate }) {
   const [importRows, setImportRows] = useState([]);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importFeedback, setImportFeedback] = useState('');
   const [importStats, setImportStats] = useState({ total: 0, valid: 0, duplicates: 0, errors: 0 });
   const importInputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -114,9 +117,11 @@ export default function MemberList({ onNavigate }) {
     setFormData({
       name: member.name || '',
       nip: member.nip || '',
+      username: member.username || '',
+      password: member.password || '',
       fraksi: member.fraksi || FRAKSI_LIST[0],
-      komisi: member.komisi || KOMISI_LIST[0],
-      akdMemberships: member.akdMemberships || [member.komisi?.replace(/\s*\(.*?\)/, '') || 'Komisi I'],
+      komisi: member.komisi || '',
+      akdMemberships: Array.isArray(member.akdMemberships) ? member.akdMemberships : [],
       jabatan: member.jabatan || 'Anggota DPRD',
       phone: member.phone || '',
       email: member.email || '',
@@ -161,11 +166,29 @@ export default function MemberList({ onNavigate }) {
       setSaveMsg('Nama anggota wajib diisi.');
       return;
     }
+    if (!formData.fraksi.trim()) {
+      setSaveMsg('Fraksi wajib diisi.');
+      return;
+    }
+    const sanitizedFormData = {
+      ...formData,
+      name: formData.name.trim(),
+      nip: formData.nip.trim(),
+      username: formData.username?.trim() || '',
+      password: formData.password?.trim() || '',
+      fraksi: formData.fraksi.trim(),
+      komisi: formData.komisi?.trim() || '',
+      akdMemberships: (formData.akdMemberships || []).map(item => item.trim()).filter(Boolean),
+      jabatan: formData.jabatan?.trim() || '',
+      phone: formData.phone.trim(),
+      email: formData.email.trim(),
+      photo: formData.photo?.trim() || '',
+    };
     setSaveMsg('');
     setIsSaving(true);
     const result = editMember
-      ? await updateMember(editMember.id, formData, photoFile)
-      : await addMember(formData, photoFile);
+      ? await updateMember(editMember.id, sanitizedFormData, photoFile)
+      : await addMember(sanitizedFormData, photoFile);
     setIsSaving(false);
     if (result?.success) {
       setSaveMsg('success');
@@ -205,9 +228,9 @@ export default function MemberList({ onNavigate }) {
     return {
       name: value(['nama', 'namalengkap', 'namaanggota']),
       nip: value(['nip', 'nomorinduk']),
-      fraksi: value(['fraksi']) || FRAKSI_LIST[0],
-      komisi: value(['komisi', 'akd']) || KOMISI_LIST[0],
-      akdMemberships: importedMemberships.length ? importedMemberships : [value(['komisi', 'akd']) || KOMISI_LIST[0]],
+      fraksi: value(['fraksi']) || '',
+      komisi: value(['komisi', 'akd']) || '',
+      akdMemberships: importedMemberships.length ? importedMemberships : [],
       jabatan: value(['jabatan']) || 'Anggota DPRD',
       phone: value(['phone', 'nohp', 'nomorhp', 'whatsapp']),
       email: value(['email', 'emaildinas']),
@@ -234,10 +257,6 @@ export default function MemberList({ onNavigate }) {
         errors.push('Fraksi wajib diisi.');
       }
 
-      if (!normalized.komisi.trim()) {
-        errors.push('Komisi / AKD wajib diisi.');
-      }
-
       if (!normalized.jabatan.trim()) {
         errors.push('Jabatan wajib diisi.');
       }
@@ -246,7 +265,13 @@ export default function MemberList({ onNavigate }) {
       if (nameKey) {
         const duplicateName = seenNames.has(nameKey) || existingRecords.some(item => String(item.name || '').trim().toLowerCase() === nameKey);
         if (duplicateName) {
-          errors.push('Nama sudah terdaftar.');
+          seenNames.add(nameKey);
+          return {
+            ...normalized,
+            errors,
+            status: errors.length ? 'error' : 'duplicate',
+            duplicateReason: 'Nama sudah terdaftar.',
+          };
         }
         seenNames.add(nameKey);
       }
@@ -255,7 +280,13 @@ export default function MemberList({ onNavigate }) {
       if (nipKey) {
         const duplicateNip = seenNips.has(nipKey) || existingRecords.some(item => String(item.nip || '').trim().toLowerCase() === nipKey);
         if (duplicateNip) {
-          errors.push('NIP sudah terdaftar.');
+          seenNips.add(nipKey);
+          return {
+            ...normalized,
+            errors,
+            status: errors.length ? 'error' : 'duplicate',
+            duplicateReason: 'NIP sudah terdaftar.',
+          };
         }
         seenNips.add(nipKey);
       }
@@ -263,11 +294,13 @@ export default function MemberList({ onNavigate }) {
       return {
         ...normalized,
         errors,
+        status: errors.length ? 'error' : 'valid',
       };
     });
 
-    const valid = preview.filter(row => row.errors.length === 0).length;
-    const duplicates = preview.filter(row => row.errors.some(error => error.includes('sudah terdaftar'))).length;
+    const valid = preview.filter(row => row.status === 'valid').length;
+    const duplicates = preview.filter(row => row.status === 'duplicate').length;
+    const errors = preview.filter(row => row.status === 'error').length;
 
     return {
       preview,
@@ -275,7 +308,7 @@ export default function MemberList({ onNavigate }) {
         total: preview.length,
         valid,
         duplicates,
-        errors: preview.length - valid,
+        errors,
       },
     };
   };
@@ -291,6 +324,12 @@ export default function MemberList({ onNavigate }) {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Template Anggota DPRD');
     XLSX.writeFile(workbook, 'template-anggotadprd.xlsx');
   };
+
+  const getValidImportRows = (rows = []) => rows.filter(row => {
+    if (row.status === 'valid') return true;
+    if (row.status === 'duplicate' || row.status === 'error') return false;
+    return Array.isArray(row.errors) ? row.errors.length === 0 : true;
+  });
 
   const handleImportFile = async (event) => {
     const file = event.target.files?.[0];
@@ -322,8 +361,11 @@ export default function MemberList({ onNavigate }) {
         }
         const rows = lines
           .filter(line => line.length > 3 && !/^(daftar|anggota|nip|fraksi|komisi|jabatan|no\.?$)/i.test(line))
-          .map(line => normalizeImportRow({ Nama: line }));
-        setImportRows(rows);
+          .map(line => ({ Nama: line }));
+
+        const preview = buildImportPreview(rows, members);
+        setImportRows(preview.preview);
+        setImportStats(preview.stats);
         setIsImportOpen(true);
       } catch {
         setSaveMsg('PDF tidak dapat diekstrak. Pastikan PDF berisi teks, bukan hasil scan gambar.');
@@ -351,25 +393,45 @@ export default function MemberList({ onNavigate }) {
 
   const handleImportSave = async () => {
     setIsImporting(true);
-    const refreshedPreview = buildImportPreview(importRows, members);
-    const validRows = refreshedPreview.preview.filter(row => row.errors.length === 0);
+
+    const validRows = getValidImportRows(importRows);
 
     if (validRows.length === 0) {
-      setImportStats(refreshedPreview.stats);
-      setSaveMsg('Tidak ada data valid untuk disimpan. Periksa kembali preview import Anda.');
+      setImportFeedback('Tidak ada data valid untuk disimpan. Periksa kembali preview import Anda.');
       setIsImporting(false);
       return;
     }
 
-    for (const row of validRows) await addMember(row);
+    let firstError = null;
+
+    for (const row of validRows) {
+      const result = await addMember(row);
+      if (!result?.success) {
+        firstError = result?.message || `Gagal menyimpan ${row.name || 'data anggota'}.`;
+        break;
+      }
+    }
+
     setIsImporting(false);
+
+    if (firstError) {
+      setImportFeedback(firstError);
+      return;
+    }
+
     setImportRows([]);
     setImportStats({ total: 0, valid: 0, duplicates: 0, errors: 0 });
     setIsImportOpen(false);
+    setImportFeedback(`Berhasil mengimport ${validRows.length} data anggota.`);
   };
 
   const updateImportRow = (index, field, value) => {
-    setImportRows(previous => previous.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row));
+    setImportRows(previous => {
+      const updatedRows = previous.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row);
+      const refreshedPreview = buildImportPreview(updatedRows, members);
+      setImportStats(refreshedPreview.stats);
+      return refreshedPreview.preview;
+    });
   };
 
   // Navigasi ke Halaman Kartu Anggota
@@ -380,12 +442,43 @@ export default function MemberList({ onNavigate }) {
     }
   };
 
+  const normalizeText = (value = '') => String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  const fraksiOptions = Array.from(new Set([
+    ...FRAKSI_LIST,
+    ...members
+      .map(member => member.fraksi)
+      .filter(Boolean)
+      .map(value => String(value).trim())
+  ])).sort((a, b) => a.localeCompare(b));
+
   const filtered = members.filter(m => {
-    const q = searchQuery.toLowerCase();
-    const matchSearch = m.name?.toLowerCase().includes(q)
-      || m.fraksi?.toLowerCase().includes(q)
-      || m.nip?.includes(q);
-    const matchFraksi = filterFraksi === 'ALL' || m.fraksi === filterFraksi;
+    const q = normalizeText(searchQuery);
+    const memberName = normalizeText(m.name);
+    const memberFraksi = normalizeText(m.fraksi);
+    const memberNip = normalizeText(m.nip);
+
+    const matchSearch = !q
+      || memberName.includes(q)
+      || memberFraksi.includes(q)
+      || memberNip.includes(q);
+
+    const normalizedFilter = normalizeText(filterFraksi);
+    const normalizedFilterNoPrefix = normalizedFilter.replace(/^fraksi\s+/, '');
+    const memberFraksiNoPrefix = memberFraksi.replace(/^fraksi\s+/, '');
+
+    const matchFraksi = filterFraksi === 'ALL'
+      || memberFraksi === normalizedFilter
+      || memberFraksiNoPrefix === normalizedFilterNoPrefix
+      || memberFraksi.includes(normalizedFilter)
+      || memberFraksiNoPrefix.includes(normalizedFilterNoPrefix);
+
     return matchSearch && matchFraksi;
   });
 
@@ -400,6 +493,12 @@ export default function MemberList({ onNavigate }) {
     <div className="space-y-5">
 
       {/* Header */}
+      {importFeedback && (
+        <div className="p-3 rounded-xl border border-emerald-800 bg-emerald-950 text-emerald-300 text-xs font-semibold">
+          {importFeedback}
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div>
           <h1 className="text-lg font-bold text-slate-900 dark:text-white">Master Data Anggota DPRD</h1>
@@ -433,14 +532,14 @@ export default function MemberList({ onNavigate }) {
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input type="text" placeholder="Cari nama, fraksi, NIP..."
+          <input type="text" placeholder="Cari nama anggota atau fraksi..."
             value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-200 text-xs rounded-xl border border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-emerald-500" />
         </div>
         <select value={filterFraksi} onChange={e => setFilterFraksi(e.target.value)}
           className="px-3 py-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-200 text-xs rounded-xl border border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-emerald-500">
           <option value="ALL">Semua Fraksi ({members.length})</option>
-          {FRAKSI_LIST.map(f => <option key={f} value={f}>{f}</option>)}
+          {fraksiOptions.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
       </div>
 
@@ -573,6 +672,23 @@ export default function MemberList({ onNavigate }) {
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Username Login</label>
+                  <input type="text" value={formData.username}
+                    onChange={e => setFormData(p => ({ ...p, username: e.target.value }))}
+                    placeholder="Contoh: ahmad.fauzi"
+                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Password Login</label>
+                  <input type="password" value={formData.password}
+                    onChange={e => setFormData(p => ({ ...p, password: e.target.value }))}
+                    placeholder="Masukkan password akun"
+                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white" />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold">Keanggotaan AKD (dapat lebih dari satu)</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 p-3 bg-slate-800 rounded-xl border border-slate-700">
@@ -594,10 +710,11 @@ export default function MemberList({ onNavigate }) {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Komisi / AKD</label>
+                  <label className="block text-slate-400 mb-1 font-semibold">Komisi / AKD (opsional)</label>
                   <select value={formData.komisi}
                     onChange={e => setFormData(p => ({ ...p, komisi: e.target.value }))}
                     className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white">
+                    <option value="">Belum ditentukan / kosong</option>
                     {KOMISI_LIST.map(k => <option key={k} value={k}>{k}</option>)}
                   </select>
                 </div>
@@ -676,9 +793,9 @@ export default function MemberList({ onNavigate }) {
               </div>
             </div>
             <div className="p-5 overflow-auto max-h-[60vh]">
-              <table className="w-full text-xs"><thead><tr className="text-left text-slate-400 border-b border-slate-700"><th className="p-2">Nama</th><th className="p-2">Fraksi</th><th className="p-2">Komisi / AKD</th><th className="p-2">Jabatan</th><th className="p-2">Kontak</th><th className="p-2">Status</th></tr></thead><tbody>{importRows.map((row, index) => <tr key={`${row.name}-${index}`} className={`border-b border-slate-800 ${row.errors.length ? 'bg-rose-950/20' : 'bg-emerald-950/10'}`}><td className="p-2"><input value={row.name} onChange={event => updateImportRow(index, 'name', event.target.value)} className="w-40 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2"><input value={row.fraksi} onChange={event => updateImportRow(index, 'fraksi', event.target.value)} className="w-40 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2"><input value={row.komisi} onChange={event => updateImportRow(index, 'komisi', event.target.value)} className="w-44 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2"><input value={row.jabatan} onChange={event => updateImportRow(index, 'jabatan', event.target.value)} className="w-36 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2 text-slate-400">{row.phone || row.email || '-'}</td><td className="p-2 text-[10px]">{row.errors.length ? <span className="text-rose-300 font-bold">{row.errors[0]}</span> : <span className="text-emerald-300 font-bold">Valid</span>}</td></tr>)}</tbody></table>
+              <table className="w-full text-xs"><thead><tr className="text-left text-slate-400 border-b border-slate-700"><th className="p-2">Nama</th><th className="p-2">Fraksi</th><th className="p-2">Komisi / AKD</th><th className="p-2">Jabatan</th><th className="p-2">Kontak</th><th className="p-2">Status</th></tr></thead><tbody>{importRows.map((row, index) => <tr key={`${row.name}-${index}`} className={`border-b border-slate-800 ${row.status === 'error' ? 'bg-rose-950/20' : row.status === 'duplicate' ? 'bg-amber-950/20' : 'bg-emerald-950/10'}`}><td className="p-2"><input value={row.name} onChange={event => updateImportRow(index, 'name', event.target.value)} className="w-40 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2"><input value={row.fraksi} onChange={event => updateImportRow(index, 'fraksi', event.target.value)} className="w-40 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2"><input value={row.komisi} onChange={event => updateImportRow(index, 'komisi', event.target.value)} className="w-44 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2"><input value={row.jabatan} onChange={event => updateImportRow(index, 'jabatan', event.target.value)} className="w-36 p-1.5 bg-slate-800 border border-slate-700 rounded" /></td><td className="p-2 text-slate-400">{row.phone || row.email || '-'}</td><td className="p-2 text-[10px]">{row.status === 'error' ? <span className="text-rose-300 font-bold">{row.errors[0]}</span> : row.status === 'duplicate' ? <span className="text-amber-300 font-bold">Duplikat</span> : <span className="text-emerald-300 font-bold">Valid</span>}</td></tr>)}</tbody></table>
             </div>
-            <div className="p-5 border-t border-slate-800 flex justify-between items-center"><span className="text-xs text-slate-400">{importRows.length} baris valid siap diimport</span><div className="flex gap-2"><button onClick={() => setIsImportOpen(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-bold">Batal</button><button onClick={handleImportSave} disabled={isImporting} className="px-4 py-2 rounded-xl bg-emerald-600 text-xs font-bold">{isImporting ? 'Menyimpan...' : 'Simpan Semua'}</button></div></div>
+            <div className="p-5 border-t border-slate-800 flex justify-between items-center"><span className="text-xs text-slate-400">{importStats.valid} baris valid siap diimport</span><div className="flex gap-2"><button onClick={() => setIsImportOpen(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-bold">Batal</button><button onClick={handleImportSave} disabled={isImporting || getValidImportRows(importRows).length === 0} className="px-4 py-2 rounded-xl bg-emerald-600 text-xs font-bold disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed">{isImporting ? 'Menyimpan...' : 'Simpan Semua'}</button></div></div>
           </div>
         </div>
       )}

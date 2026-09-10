@@ -39,6 +39,28 @@ const getComparableTimestamp = (value) => {
   return String(value);
 };
 
+const normalizeRole = (role) => {
+  const normalized = String(role || '').trim().toLowerCase();
+
+  if (['secretariat_admin', 'admin', 'sekretariat', 'sekretariat_admin', 'admin_sekretariat'].includes(normalized)) {
+    return 'SECRETARIAT_ADMIN';
+  }
+
+  if (['petugas_bk', 'bk', 'bk_dprd', 'badan_kehormatan', 'kehormatan'].includes(normalized)) {
+    return 'PETUGAS_BK';
+  }
+
+  if (['petugas_scan', 'operator_scan', 'scan', 'operator', 'operator_laptop_presensi'].includes(normalized)) {
+    return 'PETUGAS_SCAN';
+  }
+
+  if (['anggota_dprd', 'anggota', 'member', 'dewan'].includes(normalized)) {
+    return 'ANGGOTA_DPRD';
+  }
+
+  return 'PETUGAS_BK';
+};
+
 export function AttendanceProvider({ children }) {
   // Load initial states with localStorage cache fallback
   const [members, setMembers] = useState(() => {
@@ -203,14 +225,31 @@ export function AttendanceProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const stored = localStorage.getItem('siraport_user');
-      return stored ? JSON.parse(stored) : null;
+      if (!stored) return null;
+
+      const parsed = JSON.parse(stored);
+      if (!parsed || typeof parsed !== 'object') return null;
+
+      return {
+        ...parsed,
+        role: normalizeRole(parsed.role),
+        roleLabel: parsed.roleLabel || (
+          normalizeRole(parsed.role) === 'SECRETARIAT_ADMIN'
+            ? 'Admin Sekretariat DPRD'
+            : normalizeRole(parsed.role) === 'PETUGAS_BK'
+              ? 'Badan Kehormatan (BK)'
+              : normalizeRole(parsed.role) === 'PETUGAS_SCAN'
+                ? 'Operator Laptop Presensi'
+                : 'Anggota Dewan (DPRD)'
+        ),
+      };
     } catch (e) {
       return null;
     }
   });
 
   const [currentRole, setCurrentRole] = useState(
-    () => currentUser?.role || localStorage.getItem('siraport_role') || 'PETUGAS_BK'
+    () => normalizeRole(currentUser?.role || localStorage.getItem('siraport_role') || 'PETUGAS_BK')
   );
   const [activeMemberId, setActiveMemberId] = useState(
     () => currentUser?.memberId || localStorage.getItem('siraport_active_member_id') || 'DPRD-001'
@@ -230,14 +269,15 @@ export function AttendanceProvider({ children }) {
 
   // Login handler
   const login = ({ role, username, name, memberId }) => {
+    const normalizedRole = normalizeRole(role);
     const userObj = {
-      role: role || 'PETUGAS_BK',
+      role: normalizedRole,
       username: username || 'user',
       name: name || username || 'Pengguna',
       memberId: memberId || 'DPRD-001',
-      roleLabel: role === 'SECRETARIAT_ADMIN' ? 'Admin Sekretariat DPRD' :
-                 role === 'PETUGAS_BK' ? 'Badan Kehormatan (BK)' :
-                 role === 'PETUGAS_SCAN' ? 'Operator Laptop Presensi' : 'Anggota Dewan (DPRD)',
+      roleLabel: normalizedRole === 'SECRETARIAT_ADMIN' ? 'Admin Sekretariat DPRD' :
+                 normalizedRole === 'PETUGAS_BK' ? 'Badan Kehormatan (BK)' :
+                 normalizedRole === 'PETUGAS_SCAN' ? 'Operator Laptop Presensi' : 'Anggota Dewan (DPRD)',
       loginAt: new Date().toISOString()
     };
     setCurrentUser(userObj);
@@ -1059,10 +1099,16 @@ export function AttendanceProvider({ children }) {
   // ─── Update LPJ Summary pada Kegiatan ────────────────────────────────────
   const updateLPJSummary = async (activityId, lpjSummary) => {
     try {
-      setActivities(prev => prev.map(a => a.id === activityId ? { ...a, lpjSummary: { ...a.lpjSummary, ...lpjSummary } } : a));
+      const existingSummary = activities.find(a => a.id === activityId)?.lpjSummary || {};
+      const nextSummary = {
+        ...existingSummary,
+        ...lpjSummary,
+      };
+
+      setActivities(prev => prev.map(a => a.id === activityId ? { ...a, lpjSummary: nextSummary } : a));
       try {
         await updateDoc(doc(db, COL.ACTIVITIES, activityId), {
-          lpjSummary,
+          lpjSummary: nextSummary,
           updatedAt: serverTimestamp()
         });
       } catch (e) { /* fallback */ }
@@ -1077,6 +1123,18 @@ export function AttendanceProvider({ children }) {
   const addPersonnel = async (personnelData, photoFile = null) => {
     if (!canManageMembers) return { success: false, message: 'Hanya BK dan Admin yang bisa menambahkan personel sekretariat.' };
     try {
+      const normalizedName = String(personnelData.name || '').trim().toLowerCase();
+      const normalizedNip = String(personnelData.nip || '').trim().toLowerCase();
+      const duplicatePersonnel = personnel.some(item => {
+        const sameName = normalizedName && String(item.name || '').trim().toLowerCase() === normalizedName;
+        const sameNip = normalizedNip && String(item.nip || '').trim().toLowerCase() === normalizedNip;
+        return sameName || sameNip;
+      });
+
+      if (duplicatePersonnel) {
+        return { success: false, message: 'Data personel sudah ada, tidak bisa ditambahkan lagi.' };
+      }
+
       let photoUrl = personnelData.photo || '';
       if (photoFile) {
         photoUrl = await compressImageToBase64(photoFile, 400);
@@ -1168,6 +1226,18 @@ export function AttendanceProvider({ children }) {
   const addMember = async (memberData, photoFile = null) => {
     if (!canManageMembers) return { success: false, message: 'Hanya BK dan Admin yang bisa menambahkan anggota.' };
     try {
+      const normalizedName = String(memberData.name || '').trim().toLowerCase();
+      const normalizedNip = String(memberData.nip || '').trim().toLowerCase();
+      const duplicateMember = members.some(item => {
+        const sameName = normalizedName && String(item.name || '').trim().toLowerCase() === normalizedName;
+        const sameNip = normalizedNip && String(item.nip || '').trim().toLowerCase() === normalizedNip;
+        return sameName || sameNip;
+      });
+
+      if (duplicateMember) {
+        return { success: false, message: 'Data anggota sudah ada, tidak bisa ditambahkan lagi.' };
+      }
+
       let photoUrl = memberData.photo || '';
       if (photoFile) {
         photoUrl = await compressImageToBase64(photoFile, 400);

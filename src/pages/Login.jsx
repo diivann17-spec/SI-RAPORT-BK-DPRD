@@ -56,15 +56,28 @@ export default function Login() {
         roleLabel = 'Operator Laptop Presensi';
         name = 'Operator Meja Presensi';
       } else {
-        // Cek apakah username cocok dengan NIP / Nama Anggota Dewan di database
-        const matchedMember = members.find(
-          (m) =>
-            m.nip === cleanUser ||
-            m.id.toLowerCase() === lowerUser ||
-            (m.name && m.name.toLowerCase().includes(lowerUser))
-        );
+        // Cek apakah username cocok dengan NIP / Username / Nama Anggota Dewan di database
+        const matchedMember = members.find((m) => {
+          const memberUsername = String(m.username || '').trim().toLowerCase();
+          const memberIdValue = String(m.id || '').trim().toLowerCase();
+          const memberNip = String(m.nip || '').trim().toLowerCase();
+          const memberName = String(m.name || '').trim().toLowerCase();
+
+          return memberUsername === lowerUser ||
+            memberIdValue === lowerUser ||
+            memberNip === lowerUser ||
+            memberName.includes(lowerUser);
+        });
 
         if (matchedMember) {
+          const storedPassword = String(matchedMember.password || '').trim();
+
+          if (storedPassword && storedPassword !== cleanPass) {
+            setErrorMsg('Kata sandi tidak sesuai dengan akun anggota yang dipilih.');
+            setIsLoading(false);
+            return;
+          }
+
           role = 'ANGGOTA_DPRD';
           roleLabel = 'Anggota Dewan (DPRD)';
           name = matchedMember.name;

@@ -237,14 +237,28 @@ export default function PersonnelList() {
       return;
     }
 
+    let firstError = null;
+
     for (const row of validRows) {
-      await addPersonnel(row);
+      const result = await addPersonnel(row);
+      if (!result?.success) {
+        firstError = result?.message || `Gagal menyimpan ${row.name || 'data personel'}.`;
+        break;
+      }
     }
 
     setIsImporting(false);
+
+    if (firstError) {
+      setImportStats(refreshedPreview.stats);
+      setSaveMsg(firstError);
+      return;
+    }
+
     setImportRows([]);
     setImportStats({ total: 0, valid: 0, duplicates: 0, errors: 0 });
     setIsImportOpen(false);
+    setSaveMsg('');
   };
 
 
