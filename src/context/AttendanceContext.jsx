@@ -7,6 +7,7 @@ import { db } from '../firebase/config';
 import { getRaportCategory, getDisciplineGrade, calculateAttendanceStatus } from '../utils/raportUtils';
 import { getDeviceFingerprint, validateDeviceSingleAttendance } from '../utils/deviceUtils';
 import { DEFAULT_ROOMS, findRoomConflict } from '../utils/roomUtils';
+import { matchAKDCategory, memberHasAKD } from '../utils/akdUtils';
 // Mock data dihapus — app mulai kosong, data dari Firestore / input manual
 
 const AttendanceContext = createContext();
@@ -469,7 +470,12 @@ export function AttendanceProvider({ children }) {
   // ─── Helpers ─────────────────────────────────────────────────────────────
   const getMemberById = useCallback((id) => members.find(m => m.id === id), [members]);
   const getPersonnelById = useCallback((id) => personnel.find(item => item.id === id), [personnel]);
-  const getMemberByQR = useCallback((token) => members.find(m => m.qrToken === token || m.id === token), [members]);
+  const getParticipantById = useCallback((id) => getMemberById(id) || getPersonnelById(id), [getMemberById, getPersonnelById]);
+  const getMemberByQR = useCallback((token) => {
+    const cleanToken = String(token || '').trim();
+    const memberId = cleanToken.startsWith('MEMBER:') ? cleanToken.slice('MEMBER:'.length) : cleanToken;
+    return [...members, ...personnel].find(item => item.qrToken === cleanToken || item.id === memberId);
+  }, [members, personnel]);
   const getActivityById = useCallback((id) => activities.find(a => a.id === id), [activities]);
   const getActivityByQR = useCallback((token) => activities.find(a => a.qrToken === token || a.id === token), [activities]);
 
@@ -555,18 +561,39 @@ export function AttendanceProvider({ children }) {
 
   // ─── Raport Score Khusus Anggota DPRD ──────────────────────────────────────
   const getMemberRaport = useCallback((memberId, categoryFilter = 'ALL', maxMonth = null, activityFilter = 'ALL', yearFilter = 'ALL') => {
+    const member = getMemberById(memberId);
+    const isParipurna = category => /paripurna/i.test(String(category || ''));
+    const matchesMemberAKD = category => memberHasAKD(member, category);
+    const belongsToSelectedAKD = categoryFilter === 'ALL' || isParipurna(categoryFilter) || matchesMemberAKD(categoryFilter);
+    const noData = () => ({
+      percentage: null,
+      categoryInfo: {
+        key: 'NO_DATA',
+        label: 'Belum Ada Data',
+        badgeClass: 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600',
+        pillBg: 'bg-slate-400',
+        textColor: 'text-slate-500',
+        statusText: 'Belum terdapat agenda wajib yang dapat dihitung.',
+        recommendation: 'Belum ada agenda wajib hadir yang relevan untuk periode ini.'
+      },
+      discipline: { grade: '-', label: 'Belum Ada Data' },
+      totalMandatory: 0,
+      attendedCount: 0,
+      breakdown: { hadir: 0, terlambat: 0, dinas: 0, izin: 0, sakit: 0, alpa: 0 }
+    });
+    if (!belongsToSelectedAKD) {
+      return noData();
+    }
     // Pastikan hanya menghitung log dengan participantType !== 'EXTERNAL' dan memberId match
-    const memberLogs = logs.filter(l => l.memberId === memberId && l.participantType !== 'EXTERNAL');
-    let relevantActivities = categoryFilter === 'ALL'
-        ? activities.filter(activity => Array.isArray(activity.participantMemberIds) && activity.participantMemberIds.includes(memberId) && (!activity.participantStatuses || activity.participantStatuses[memberId] === 'WAJIB_HADIR'))
-      : activities.filter(a => {
-          if (!Array.isArray(a.participantMemberIds) || !a.participantMemberIds.includes(memberId)) return false;
-          if (a.participantStatuses && a.participantStatuses[memberId] !== 'WAJIB_HADIR') return false;
-          if (!a.category) return false;
-          const aCat = a.category.toLowerCase();
-          const fCat = categoryFilter.toLowerCase();
-          return aCat === fCat || aCat.includes(fCat) || fCat.includes(aCat);
-        });
+    const memberLogs = logs.filter(l => l.memberId === memberId && l.participantType === 'INTERNAL' && l.participantCategory !== 'PERSONEL SEKRETARIAT');
+    let relevantActivities = activities.filter(activity => {
+      if (!Array.isArray(activity.participantMemberIds) || !activity.participantMemberIds.includes(memberId)) return false;
+      if (activity.participantStatuses?.[memberId] && activity.participantStatuses[memberId] !== 'WAJIB_HADIR') return false;
+      if (!activity.category) return false;
+      const activityIsParipurna = isParipurna(activity.category);
+      const matchesSelectedCategory = categoryFilter === 'ALL' || matchAKDCategory(activity.category, categoryFilter);
+      return matchesSelectedCategory && (activityIsParipurna || matchesMemberAKD(activity.category));
+    });
 
       if (activityFilter !== 'ALL') relevantActivities = relevantActivities.filter(activity => activity.id === activityFilter);
       if (yearFilter !== 'ALL') relevantActivities = relevantActivities.filter(activity => String(activity.date || '').slice(0, 4) === String(yearFilter));
@@ -580,7 +607,9 @@ export function AttendanceProvider({ children }) {
       });
     }
 
-    const total = relevantActivities.length || 1;
+    if (relevantActivities.length === 0) return noData();
+
+    const total = relevantActivities.length;
     let score = 0, hadir = 0, terlambat = 0, izin = 0, sakit = 0, dinas = 0, alpa = 0;
     
     relevantActivities.forEach(act => {
@@ -617,7 +646,7 @@ export function AttendanceProvider({ children }) {
       attendedCount: Math.round(score * 10) / 10,
       breakdown: { hadir, terlambat, dinas, izin, sakit, alpa }
     };
-  }, [logs, activities, scoreSettings]);
+  }, [logs, activities, scoreSettings, getMemberById]);
 
   // ─── Record Attendance Internal (Anggota DPRD) dengan Validasi Multi-Faktor ──
   const recordAttendance = async ({
@@ -641,10 +670,10 @@ export function AttendanceProvider({ children }) {
       if (method === 'MANUAL_OVERRIDE' && !['SECRETARIAT_ADMIN', 'PETUGAS_BK', 'PETUGAS_SCAN'].includes(currentRole)) {
         return { success: false, message: 'Input Manual hanya dapat dilakukan Admin Sekretariat atau Petugas.' };
       }
-      const member = getMemberById(memberId);
+      const member = getParticipantById(memberId);
       const activity = activities.find(a => a.id === activityId);
       const previousLog = logs.find(l => l.activityId === activityId && l.memberId === memberId);
-      if (!member) return { success: false, message: 'Data Anggota DPRD tidak ditemukan.' };
+      if (!member) return { success: false, message: 'Data peserta internal tidak ditemukan.' };
       if (!activity) return { success: false, message: 'Agenda Kegiatan tidak ditemukan.' };
       const participantStatus = activity.participantStatuses?.[memberId] || 'WAJIB_HADIR';
       if (!['WAJIB_HADIR', 'UNDANGAN', 'OPSIONAL'].includes(participantStatus)) {
@@ -719,15 +748,16 @@ export function AttendanceProvider({ children }) {
         diffNote = timeCalc.message;
       }
 
+      const isPersonnel = member.type === 'PERSONNEL' || String(memberId).startsWith('PERSONNEL-') || activity.participantTypes?.[memberId] === 'PERSONNEL';
       const newLog = {
         id: `ATT-${Date.now()}`,
         activityId,
         roomId: activity.roomId || null,
         roomName: activity.roomName || activity.locationName || '',
         participantType: 'INTERNAL',
-        participantCategory: 'ANGGOTA DPRD',
+        participantCategory: isPersonnel ? 'PERSONEL SEKRETARIAT' : 'ANGGOTA DPRD',
         participantStatus,
-        includedInRaport: participantStatus === 'WAJIB_HADIR',
+        includedInRaport: !isPersonnel && participantStatus === 'WAJIB_HADIR',
         memberId,
         memberName: member.name,
         memberFraksi: member.fraksi || '',
@@ -1767,7 +1797,7 @@ export function AttendanceProvider({ children }) {
       currentRole, setCurrentRole,
       activeMemberId, setActiveMemberId,
       canManageMembers, isAdmin, isBK,
-      getMemberById, getPersonnelById, getMemberByQR, getActivityById, getActivityByQR, getMemberRaport,
+      getMemberById, getPersonnelById, getParticipantById, getMemberByQR, getActivityById, getActivityByQR, getMemberRaport,
       recordAttendance, checkoutAttendance, recordGuestAttendance, recordManualAttendance,
       requestLeave, reviewLeaveRequest,
       getLPJData, updateLPJSummary,

@@ -46,7 +46,8 @@ const KOMISI_LIST = [
 
 const AKD_MEMBERSHIP_LIST = [
   'Pimpinan DPRD', 'Komisi I', 'Komisi II', 'Komisi III', 'Komisi IV',
-  'Badan Kehormatan (BK)', 'Badan Anggaran (Banggar)',
+  'Koordinator Komisi I', 'Koordinator Komisi II', 'Koordinator Komisi III', 'Koordinator Komisi IV',
+  'Badan Kehormatan (BK)', 'Badan Anggaran (Banggar)', 'Badan Musyawarah (Banmus)',
   'Bapemperda', 'Fasgarwas', 'Pansus I', 'Pansus II', 'Pansus III', 'Pansus IV'
 ];
 

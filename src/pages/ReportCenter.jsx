@@ -100,8 +100,13 @@ export default function ReportCenter() {
   };
 
   const memberLogs = useMemo(
-    () => logs.filter((log) => log.participantType !== 'EXTERNAL'),
+    () => logs.filter((log) => log.participantType === 'INTERNAL' && log.participantCategory !== 'PERSONEL SEKRETARIAT'),
     [logs]
+  );
+
+  const personnelAttendanceLogs = useMemo(
+    () => logs.filter(log => log.participantType === 'INTERNAL' && log.participantCategory === 'PERSONEL SEKRETARIAT' && (selectedReportActivityId === 'ALL' || log.activityId === selectedReportActivityId)),
+    [logs, selectedReportActivityId]
   );
 
   const externalLogs = useMemo(
@@ -339,6 +344,7 @@ export default function ReportCenter() {
               Filter berdasarkan Bagian / Unit Kerja serta ekspor data personel yang
               terhubung langsung ke database.
             </p>
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-1">Log kehadiran agenda: {personnelAttendanceLogs.length} personel. Data ini tidak dihitung dalam e-RAPORT Anggota DPRD.</p>
           </div>
 
           <button
@@ -392,6 +398,28 @@ export default function ReportCenter() {
             getPosition={item => `${item.jabatan || ''}${item.pangkat ? ` / ${item.pangkat}` : ''}`}
             getAgency={item => item.unit || 'Sekretariat DPRD'}
           />
+
+          {personnelAttendanceLogs.length > 0 && <div className="overflow-x-auto border border-emerald-200 dark:border-emerald-900/50 rounded-xl print:hidden">
+            <div className="px-3 py-2 bg-emerald-50 dark:bg-emerald-950/30 text-xs font-bold text-emerald-800 dark:text-emerald-300">Daftar Kehadiran Personel pada Agenda</div>
+            <PrintableAttendanceTable
+              rows={personnelAttendanceLogs}
+              getName={item => item.memberName || ''}
+              getPosition={item => personnel.find(entry => entry.id === item.memberId)?.jabatan || 'Personel Sekretariat DPRD'}
+              getAgency={item => personnel.find(entry => entry.id === item.memberId)?.unit || 'Sekretariat DPRD'}
+            />
+            <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
+              <thead className="bg-emerald-50/60 dark:bg-emerald-950/20 text-slate-900 dark:text-white font-bold">
+                <tr><th className="p-3">Nama</th><th className="p-3">Jabatan / Bagian</th><th className="p-3">Agenda</th><th className="p-3">Check-in</th><th className="p-3">Check-out</th><th className="p-3">Status</th></tr>
+              </thead>
+              <tbody className="divide-y divide-emerald-100 dark:divide-emerald-900/30">
+                {personnelAttendanceLogs.map(log => {
+                  const item = personnel.find(entry => entry.id === log.memberId);
+                  const activity = activities.find(entry => entry.id === log.activityId);
+                  return <tr key={log.id}><td className="p-3 font-semibold">{log.memberName || item?.name || '-'}</td><td className="p-3">{item?.jabatan || '-'} / {item?.unit || 'Sekretariat DPRD'}</td><td className="p-3">{activity?.title || log.activityId}</td><td className="p-3">{formatDateTime(log.checkInAt || log.timestamp)}</td><td className="p-3">{formatDateTime(log.checkOutAt)}</td><td className="p-3">{log.status || '-'}</td></tr>;
+                })}
+              </tbody>
+            </table>
+          </div>}
 
           <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl print:hidden">
             <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">

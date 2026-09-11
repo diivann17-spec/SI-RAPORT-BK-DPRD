@@ -14,7 +14,7 @@ import {
  *   memberId?: string
  */
 export default function ManualAttendanceModal({ isOpen, onClose, activityId: propActivityId, memberId: propMemberId }) {
-  const { members, activities, logs, recordManualAttendance, getMemberById } = useAttendance();
+  const { members, personnel, activities, logs, recordManualAttendance, getParticipantById } = useAttendance();
 
   const [selectedMemberId, setSelectedMemberId] = useState(propMemberId || '');
   const [selectedActivityId, setSelectedActivityId] = useState(propActivityId || '');
@@ -35,7 +35,7 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
       const activeAct = activities.find(a => a.id === propActivityId) || activities.find(a => a.status === 'ACTIVE') || activities[0];
       setSelectedActivityId(propActivityId || (activeAct?.id || ''));
       const activeParticipantIds = Array.isArray(activeAct?.participantMemberIds) ? activeAct.participantMemberIds : [];
-      const firstParticipantId = members.find(member => activeParticipantIds.includes(member.id))?.id || '';
+      const firstParticipantId = [...members, ...personnel].find(member => activeParticipantIds.includes(member.id))?.id || '';
       setSelectedMemberId(propMemberId && activeParticipantIds.includes(propMemberId) ? propMemberId : firstParticipantId);
       setError('');
       setSyncWarning('');
@@ -46,12 +46,12 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
       setSptDate('');
       setStatus('Hadir');
     }
-  }, [isOpen, propActivityId, propMemberId, activities, members]);
+  }, [isOpen, propActivityId, propMemberId, activities, members, personnel]);
 
-  const selectedMember = getMemberById(selectedMemberId);
+  const selectedMember = getParticipantById(selectedMemberId);
   const selectedActivity = activities.find(a => a.id === selectedActivityId);
   const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
-  const participantMembers = members.filter(member => participantIds.includes(member.id));
+  const participantMembers = [...members, ...personnel].filter(member => participantIds.includes(member.id));
 
   // Cek apakah anggota ini sudah absen di kegiatan ini
   const existingLog = useMemo(() =>

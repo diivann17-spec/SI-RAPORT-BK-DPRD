@@ -31,6 +31,7 @@ export default function AttendanceScan() {
   const {
     activities,
     members,
+    personnel,
     logs,
     loading,
     leaveRequests,
@@ -61,7 +62,7 @@ export default function AttendanceScan() {
   const externalLogs = activityLogs.filter(l => l.participantType === 'EXTERNAL');
   const pendingLeaveRequests = leaveRequests.filter(req => req.activityId === selectedActivityId && req.status === 'PENDING');
   const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
-  const participantMembers = members.filter(member => participantIds.includes(member.id));
+  const participantMembers = [...members, ...personnel].filter(member => participantIds.includes(member.id));
 
   // Members attendance list
   const memberAttendanceList = participantMembers.map(m => {
@@ -75,8 +76,8 @@ export default function AttendanceScan() {
     const q = searchQuery.toLowerCase();
     return (
       item.member.name.toLowerCase().includes(q) ||
-      item.member.fraksi.toLowerCase().includes(q) ||
-      item.member.komisi.toLowerCase().includes(q)
+      String(item.member.fraksi || item.member.unit || '').toLowerCase().includes(q) ||
+      String(item.member.komisi || item.member.jabatan || '').toLowerCase().includes(q)
     );
   });
 
@@ -238,7 +239,7 @@ export default function AttendanceScan() {
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Anggota DPRD Peserta Agenda ({participantMembers.length})</span>
+          <span>Peserta Internal ({participantMembers.length})</span>
         </button>
 
         <button
@@ -266,7 +267,7 @@ export default function AttendanceScan() {
         </button>
       </div>
 
-      {/* ── TAB 1: PESERTA INTERNAL (ANGGOTA DPRD) ── */}
+      {/* ── TAB 1: PESERTA INTERNAL ── */}
       {activeSubTab === 'internal' && (
         <div className="space-y-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 space-y-3">
@@ -317,7 +318,7 @@ export default function AttendanceScan() {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
               type="text"
-              placeholder="Cari nama anggota, fraksi, komisi..."
+              placeholder="Cari nama peserta, bagian, jabatan..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs text-slate-900 dark:text-white"
@@ -343,7 +344,7 @@ export default function AttendanceScan() {
                         {member.name}
                       </h4>
                       <p className="text-[11px] text-slate-400 truncate">
-                        {member.fraksi} • {member.komisi}
+                        {member.type === 'PERSONNEL' ? `${member.nip || '-'} • ${member.jabatan || '-'} • ${member.unit || '-'}` : `${member.fraksi || '-'} • ${member.komisi || '-'}`}
                       </p>
                       {log && (
                         <span className="text-[10px] text-slate-500 font-mono block mt-0.5">

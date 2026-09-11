@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
 import { getStatusBadge, getMethodBadge, formatCheckInWithStatus } from '../utils/raportUtils';
+import { getMemberAKDs, memberHasAKD, matchAKDCategory } from '../utils/akdUtils';
 import dprdLogo from '../logo.png';
 import {
   FileSpreadsheet,
@@ -23,7 +24,6 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
     logs,
     bkNotes,
     saveBKNote,
-    reportSigners,
     currentRole
   } = useAttendance();
 
@@ -41,11 +41,16 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
   if (!isOpen || !member) return null;
 
   // Filter activities up to selectedMaxMonth
+  const memberAKDs = getMemberAKDs(member);
   const filteredActivities = activities.filter(act => {
     if (selectedMaxMonth === 'ALL') return true;
     if (!act.date) return true;
     const m = new Date(act.date).getMonth() + 1;
     return m <= parseInt(selectedMaxMonth, 10);
+  }).filter(act => {
+    if (!Array.isArray(act.participantMemberIds) || !act.participantMemberIds.includes(memberId)) return false;
+    if (act.participantStatuses?.[memberId] && act.participantStatuses[memberId] !== 'WAJIB_HADIR') return false;
+    return /paripurna/i.test(act.category || '') || memberAKDs.some(akd => matchAKDCategory(akd, act.category));
   });
 
   const memberLogs = logs.filter(l => l.memberId === memberId);
@@ -58,6 +63,9 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
     'Panitia Khusus (Pansus 1)', 'Panitia Khusus (Pansus 2)', 'Panitia Khusus (Pansus 3)', 'Panitia Khusus (Pansus 4)',
     'Pimpinan DPRD', 'Rapat Paripurna'
   ];
+  const visibleCategories = categories.filter(category =>
+    /paripurna/i.test(category) || memberHasAKD(member, category)
+  );
 
   const handleSaveNote = () => {
     saveBKNote(memberId, noteText, warningStatus);
@@ -70,7 +78,7 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+    <div className="eraport-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl text-slate-100 relative max-h-[92vh] overflow-y-auto">
 
         {/* Top Control Bar (Hidden on Print) */}
@@ -80,8 +88,9 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
               <FileSpreadsheet className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-lg text-white">e-Raport Kedisiplinan Kehadiran Digital</h3>
-              <p className="text-xs text-slate-400">Format Kertas Cetak F4 / Folio (215 x 330 mm) - Terlihat Penuh</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Dokumen Evaluasi Kehadiran</p>
+              <h3 className="font-bold text-lg leading-tight text-white">e-Raport Kedisiplinan Kehadiran Digital</h3>
+              <p className="text-xs text-slate-400">Format resmi kertas F4 / Folio, 215 x 330 mm</p>
             </div>
           </div>
           <div className="flex items-center flex-wrap gap-2.5">
@@ -149,6 +158,13 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
             </div>
           </div>
 
+          <div className="border-b border-slate-300 py-3 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-800">Dokumen Resmi Badan Kehormatan</p>
+            <h1 className="mt-1 font-serif text-lg font-black uppercase tracking-wide text-slate-900">e-Raport Kedisiplinan Kehadiran Digital</h1>
+            <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">Rekapitulasi Kehadiran Anggota DPRD Berdasarkan Keanggotaan AKD</p>
+            <p className="mt-1 text-[9px] text-slate-500">Format cetak F4 / Folio (215 x 330 mm)</p>
+          </div>
+
           {/* Member Profile & Category Badge Overview */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-5 rounded-xl border border-slate-200">
 
@@ -177,7 +193,7 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
             <div className={`p-4 rounded-xl text-center flex flex-col justify-center border ${raport.categoryInfo.badgeClass}`}>
               <span className="text-xs font-extrabold uppercase tracking-wider">Persentase Kehadiran</span>
               <div className="text-4xl font-black my-1">
-                {raport.percentage}%
+                {raport.percentage === null ? '—' : `${raport.percentage}%`}
               </div>
               <div className="text-xs font-bold uppercase tracking-wide">
                 KATEGORI: {raport.categoryInfo.label}
@@ -211,7 +227,7 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {categories.map(cat => {
+                  {visibleCategories.map(cat => {
                     const catRaport = getMemberRaport(memberId, cat, selectedMaxMonth);
                     return (
                       <tr key={cat} className="hover:bg-slate-50">
@@ -221,7 +237,7 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
                         <td className="p-2 text-center text-amber-700 font-bold">{catRaport.breakdown.terlambat}</td>
                         <td className="p-2 text-center text-blue-700 font-bold">{catRaport.breakdown.izin + catRaport.breakdown.sakit}</td>
                         <td className="p-2 text-center text-rose-700 font-bold">{catRaport.breakdown.alpa}</td>
-                        <td className="p-2 text-right font-bold text-slate-900 font-mono">{catRaport.percentage}%</td>
+                        <td className="p-2 text-right font-bold text-slate-900 font-mono">{catRaport.percentage === null ? '—' : `${catRaport.percentage}%`}</td>
                         <td className="p-2 text-center">
                           <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${catRaport.categoryInfo.badgeClass}`}>
                             {catRaport.categoryInfo.key}
@@ -352,17 +368,6 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
             <div className="p-3 bg-white rounded-lg border border-amber-200 text-xs italic text-slate-800">
               "{noteText || raport.categoryInfo.recommendation}"
             </div>
-          </div>
-
-          {/* Signature Block for Official Printout */}
-          <div className="pt-6 border-t border-slate-300 grid grid-cols-2 text-center text-xs text-slate-700">
-            {reportSigners.filter(signer => signer.active !== false).slice(0, 2).map(signer => <div key={signer.id}>
-              <p className="text-slate-500">{signer.label || signer.position},</p>
-              <div className="h-16"></div>
-              <p className="font-bold text-slate-900 border-b border-slate-400 inline-block pb-0.5">{signer.name}</p>
-              {signer.rank && <p className="text-[10px] text-slate-500">{signer.rank}</p>}
-              {signer.nip && <p className="text-[10px] text-slate-500">NIP. {signer.nip}</p>}
-            </div>)}
           </div>
 
         </div>

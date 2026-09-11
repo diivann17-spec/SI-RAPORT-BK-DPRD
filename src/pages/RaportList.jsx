@@ -14,7 +14,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 
-import { AKD_CATEGORIES } from '../utils/akdUtils';
+import { AKD_CATEGORIES, matchAKDCategory } from '../utils/akdUtils';
 import * as XLSX from 'xlsx';
 
 export default function RaportList() {
@@ -56,8 +56,10 @@ export default function RaportList() {
 
     // Fraksi filter
     const matchFraksi = selectedFraksi === 'ALL' || member.fraksi === selectedFraksi;
+    const memberAKDs = [...(Array.isArray(member.akdMemberships) ? member.akdMemberships : []), member.komisi].filter(Boolean);
+    const matchAKD = selectedAKD === 'ALL' || memberAKDs.some(akd => matchAKDCategory(akd, selectedAKD));
 
-    return matchSearch && matchColor && matchFraksi;
+    return matchSearch && matchColor && matchFraksi && matchAKD;
   });
 
   const fraksiList = Array.from(new Set(members.map(m => m.fraksi)));
@@ -91,7 +93,7 @@ export default function RaportList() {
           </div>
           <h1 className="text-lg sm:text-xl font-extrabold text-white">Raport Kedisiplinan Kehadiran</h1>
           <p className="text-xs text-slate-300">
-            Hasil pengolahan evaluasi kehadiran anggota DPRD dengan indikator kategori warna Hijau, Kuning, & Merah.
+            E-Raport kedisiplinan kehadiran digital anggota DPRD berdasarkan AKD, dengan indikator Hijau, Kuning, & Merah.
           </p>
         </div>
 
@@ -208,11 +210,14 @@ export default function RaportList() {
           memberRaports.map(({ member, raport, bkNote }) => {
             const isGreen = raport.categoryInfo.key === 'GREEN';
             const isYellow = raport.categoryInfo.key === 'YELLOW';
-            const statusTag = isGreen ? 'Baik' : isYellow ? 'Cukup' : 'Kurang';
+            const hasNoData = raport.categoryInfo.key === 'NO_DATA';
+            const statusTag = hasNoData ? 'Belum Ada Data' : isGreen ? 'Baik' : isYellow ? 'Cukup' : 'Kurang';
             const tagColor = isGreen
               ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
               : isYellow
               ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+              : hasNoData
+              ? 'bg-slate-500/20 text-slate-400 border-slate-500/40'
               : 'bg-rose-500/20 text-rose-300 border-rose-500/40';
 
             return (
@@ -236,7 +241,7 @@ export default function RaportList() {
                   <div className="min-w-0">
                     <h4 className="font-bold text-xs text-white truncate">{member.name}</h4>
                     <p className="text-[10px] text-slate-400 truncate">{member.jabatan} • {member.komisi}</p>
-                    <p className="text-[11px] font-black text-slate-200 font-mono mt-0.5">{raport.percentage}% Kehadiran • Nilai {raport.discipline.grade}</p>
+                    <p className="text-[11px] font-black text-slate-200 font-mono mt-0.5">{raport.percentage === null ? 'Belum Ada Data' : `${raport.percentage}% Kehadiran • Nilai ${raport.discipline.grade}`}</p>
                   </div>
                 </div>
 
@@ -298,7 +303,7 @@ export default function RaportList() {
                   </td>
 
                   <td className="p-3 text-right font-mono font-extrabold text-sm text-slate-900 dark:text-white">
-                    {raport.percentage}% <span className="text-cyan-600 dark:text-cyan-400">({raport.discipline.grade})</span>
+                    {raport.percentage === null ? '—' : `${raport.percentage}%`} <span className="text-cyan-600 dark:text-cyan-400">({raport.discipline.grade})</span>
                   </td>
 
                   <td className="p-3 text-center">

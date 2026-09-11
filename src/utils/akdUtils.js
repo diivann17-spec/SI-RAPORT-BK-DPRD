@@ -192,6 +192,19 @@ export const AKD_BADGE_COLORS = {
   'Kunjungan Kerja': 'bg-rose-950 text-rose-300 border-rose-800',
 };
 
+export function getMemberAKDs(member) {
+  const memberships = [
+    ...(Array.isArray(member?.akdMemberships) ? member.akdMemberships : []),
+    member?.komisi
+  ].filter(Boolean).map(String);
+
+  return [...new Map(memberships.map(value => [value.toLowerCase().trim(), value])).values()];
+}
+
+export function memberHasAKD(member, category) {
+  return getMemberAKDs(member).some(akd => matchAKDCategory(akd, category));
+}
+
 /**
  * Mencocokkan apakah kategori agenda sesuai dengan filter AKD
  */
@@ -199,8 +212,18 @@ export function matchAKDCategory(activityCategory, filterKey) {
   if (!filterKey || filterKey === 'ALL') return true;
   if (!activityCategory) return false;
   
-  const normAct = activityCategory.toLowerCase().trim();
-  const normFilter = filterKey.toLowerCase().trim();
+  const normalize = value => String(value).toLowerCase().trim()
+    .replace(/pansus\s+i\b/g, 'pansus 1')
+    .replace(/pansus\s+ii\b/g, 'pansus 2')
+    .replace(/pansus\s+iii\b/g, 'pansus 3')
+    .replace(/pansus\s+iv\b/g, 'pansus 4');
+  const normAct = normalize(activityCategory);
+  const normFilter = normalize(filterKey);
+
+  // Prevent prefix matches such as "Komisi I" matching "Komisi II".
+  if (/^komisi\s+[ivx1-4]+$/.test(normAct) || /^komisi\s+[ivx1-4]+$/.test(normFilter)) {
+    return normAct === normFilter;
+  }
   
   return normAct === normFilter || normAct.includes(normFilter) || normFilter.includes(normAct);
 }

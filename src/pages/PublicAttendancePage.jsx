@@ -28,6 +28,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
   const {
     activities,
     members,
+    personnel,
     logs,
     recordAttendance,
     checkoutAttendance,
@@ -171,7 +172,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
     : { status: 'Hadir', message: 'Tepat Waktu', isExpired: false, isLate: false };
 
   const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
-  const participantMembers = members.filter(member => participantIds.includes(member.id));
+  const participantMembers = [...members, ...personnel].filter(member => participantIds.includes(member.id));
   const filteredMembers = participantMembers.filter(m =>
     !memberSearch ||
     m.name?.toLowerCase().includes(memberSearch.toLowerCase()) ||

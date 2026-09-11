@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 export default function QRScannerModal({ isOpen, onClose, selectedActivityId, activityId }) {
-  const { members, activities, logs, getMemberByQR, getMemberById, recordAttendance, checkoutAttendance, recordGuestAttendance } = useAttendance();
+  const { members, personnel, activities, logs, getMemberByQR, getParticipantById, recordAttendance, checkoutAttendance, recordGuestAttendance } = useAttendance();
 
   const [scanResult, setScanResult] = useState(null);
   const [scanError, setScanError] = useState('');
@@ -167,16 +167,16 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     if (!member) {
       try {
         const parsed = JSON.parse(cleanText);
-        if (parsed.id) member = getMemberById(parsed.id);
+        if (parsed.id) member = getParticipantById(parsed.id);
         if (!member && parsed.qrToken) member = getMemberByQR(parsed.qrToken);
         if (!member && parsed.nip) member = members.find(m => m.nip === parsed.nip);
-        if (!member && parsed.memberId) member = getMemberById(parsed.memberId);
+        if (!member && parsed.memberId) member = getParticipantById(parsed.memberId);
       } catch (e) { /* bukan JSON */ }
     }
 
     // 4. Cari berdasarkan ID atau NIP langsung
     if (!member) {
-      member = members.find(m =>
+      member = [...members, ...personnel].find(m =>
         m.id === cleanText ||
         m.id === extractedToken ||
         m.nip === cleanText ||
@@ -188,7 +188,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
 
     // 5. Fuzzy match: jika token mengandung ID atau NIP anggota
     if (!member) {
-      member = members.find(m =>
+      member = [...members, ...personnel].find(m =>
         cleanText.includes(m.id) ||
         (m.nip && cleanText.includes(m.nip)) ||
         (m.name && cleanText.toLowerCase().includes(m.name.toLowerCase()))
@@ -196,7 +196,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     }
 
     if (!member) {
-      setScanError(`QR Code "${cleanText}" tidak cocok dengan data anggota manapun di sistem. Pastikan menggunakan Kartu Digital resmi.`);
+      setScanError(`QR Code "${cleanText}" tidak cocok dengan data peserta internal di sistem. Pastikan menggunakan Kartu Digital resmi.`);
       recoverScan();
       return;
     }
@@ -246,7 +246,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       recoverScan();
     }
     setIsProcessing(false);
-  }, [isProcessing, getMemberByQR, getMemberById, members, logs, recordAttendance, checkoutAttendance, selectedActivity, stopScanner, restartScanner]);
+  }, [isProcessing, getMemberByQR, getParticipantById, members, personnel, logs, recordAttendance, checkoutAttendance, selectedActivity, stopScanner, restartScanner]);
 
   // Inisialisasi kamera scanner
   useEffect(() => {

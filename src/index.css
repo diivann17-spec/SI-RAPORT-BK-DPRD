@@ -91,6 +91,103 @@
     max-width: 100% !important;
     width: 100% !important;
   }
+
+  .digital-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .digital-member-card {
+    height: 260px;
+    min-height: 260px;
+    break-inside: avoid;
+  }
+
+  .digital-member-card h2,
+  .digital-member-card p,
+  .digital-member-card li,
+  .digital-member-card dd,
+  .digital-member-card span {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  @media print {
+    @page {
+      size: F4 portrait;
+      margin: 8mm;
+    }
+
+    body {
+      background: #fff !important;
+      color: #0f172a !important;
+    }
+
+    .digital-card-print-page {
+      display: grid !important;
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      gap: 5mm !important;
+      width: 100%;
+    }
+
+    .digital-card-print-page.cards-per-5 .digital-member-card {
+      height: 65mm;
+      min-height: 65mm;
+    }
+
+    .digital-card-print-page.cards-per-6 .digital-member-card {
+      height: 58mm;
+      min-height: 58mm;
+    }
+
+    .digital-card-print-page.cards-per-6 .digital-member-card {
+      font-size: 7px;
+    }
+
+    .digital-card-print-page.cards-per-6 .digital-member-card h2 {
+      font-size: 9px;
+    }
+
+    .digital-card-print-page.cards-per-6 .digital-member-card p,
+    .digital-card-print-page.cards-per-6 .digital-member-card li,
+    .digital-card-print-page.cards-per-6 .digital-member-card dd,
+    .digital-card-print-page.cards-per-6 .digital-member-card span {
+      line-height: 1.15;
+    }
+
+    .digital-card-print-page.cards-per-6 .digital-member-card .p-4 {
+      padding: 2.5mm;
+    }
+
+    .digital-card-print-page.cards-per-6 .digital-member-card .p-3 {
+      padding: 2mm;
+    }
+
+    .digital-member-card {
+      border: 0.4mm dashed #64748b !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      page-break-inside: avoid;
+    }
+
+    .digital-member-card svg {
+      max-width: none;
+    }
+
+    .digital-card-print-page.cards-per-5 .digital-member-card:nth-child(5n + 1),
+    .digital-card-print-page.cards-per-6 .digital-member-card:nth-child(6n + 1) {
+      break-before: page;
+    }
+
+    .digital-card-print-page .digital-member-card:first-child {
+      break-before: auto;
+    }
+
+    .digital-card-print-page .digital-member-card-back:first-child {
+      break-before: page;
+    }
+  }
 }
 
 @media (max-width: 768px) {
@@ -341,6 +438,78 @@
     break-inside: avoid;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+
+  /* Print one clean F4 page for the e-Raport modal only. */
+  @page {
+    size: F4 portrait;
+    margin: 8mm;
+  }
+
+  #root:has(.eraport-modal) > * {
+    visibility: hidden !important;
+  }
+
+  #root:has(.eraport-modal) .eraport-modal,
+  #root:has(.eraport-modal) .eraport-modal * {
+    visibility: visible !important;
+  }
+
+  .eraport-modal {
+    position: absolute !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .eraport-modal > div {
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+
+  .eraport-modal .print-page {
+    display: block !important;
+    width: 199mm !important;
+    height: 314mm !important;
+    max-height: 314mm !important;
+    margin: 0 auto !important;
+    padding: 7mm !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: #000 !important;
+    font-size: 8pt !important;
+  }
+
+  .eraport-modal .print-page > * + * {
+    margin-top: 2.5mm !important;
+  }
+
+  .eraport-modal .print-page table {
+    font-size: 7pt !important;
+  }
+
+  .eraport-modal .print-page th,
+  .eraport-modal .print-page td {
+    padding: 1.2mm !important;
   }
 
   /* Official external attendance sheet */

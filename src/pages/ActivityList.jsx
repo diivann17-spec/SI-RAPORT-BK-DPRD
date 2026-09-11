@@ -43,13 +43,14 @@ const EMPTY_FORM = {
   status: 'ACTIVE',
   participantMemberIds: [],
   participantStatuses: {},
+  participantTypes: {},
   participantSelectionMode: 'MANUAL',
   invitedGuests: [],
   attendanceMethods: ['QR_AGENDA', 'QR_WEBCAM', 'GPS_ONLINE', 'MANUAL_OVERRIDE'],
 };
 
 export default function ActivityList() {
-  const { activities, addActivity, updateActivity, deleteActivity, clearActivityAttendance, logs, members, rooms, loading } = useAttendance();
+  const { activities, addActivity, updateActivity, deleteActivity, clearActivityAttendance, logs, members, personnel, rooms, loading } = useAttendance();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editActivity, setEditActivity] = useState(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
@@ -66,6 +67,7 @@ export default function ActivityList() {
   const [activeGuestActivityId, setActiveGuestActivityId] = useState(null);
   const [activeInvitationActivity, setActiveInvitationActivity] = useState(null);
   const [draggedMemberId, setDraggedMemberId] = useState(null);
+  const [participantTab, setParticipantTab] = useState('MEMBER');
   const [externalDraft, setExternalDraft] = useState({ agency: '', invitedName: '', position: '', category: 'OPD/INSTANSI' });
   const participantImportRef = React.useRef(null);
   const participantsLocked = Boolean(editActivity && Array.isArray(editActivity.participantMemberIds));
@@ -77,6 +79,7 @@ export default function ActivityList() {
       activityNumber: `${String(activities.length + 1).padStart(3, '0')}/DPRD/IX/2026`,
       participantMemberIds: [],
       participantStatuses: {},
+      participantTypes: {},
       participantSelectionMode: 'MANUAL',
     });
     setEditActivity(null);
@@ -88,7 +91,8 @@ export default function ActivityList() {
     const legacyRoom = rooms.find(room => room.name === a.locationName || room.name === a.roomName);
     const existingParticipantIds = Array.isArray(a.participantMemberIds) ? a.participantMemberIds : [];
     const existingStatuses = a.participantStatuses || Object.fromEntries(existingParticipantIds.map(id => [id, 'WAJIB_HADIR']));
-    setFormData({ ...a, roomId: a.roomId || legacyRoom?.id || '', participantMemberIds: existingParticipantIds, participantStatuses: existingStatuses, participantSelectionMode: a.participantSelectionMode || 'MANUAL' });
+    const existingTypes = a.participantTypes || Object.fromEntries(existingParticipantIds.map(id => [id, members.some(member => member.id === id) ? 'MEMBER' : 'PERSONNEL']));
+    setFormData({ ...a, roomId: a.roomId || legacyRoom?.id || '', participantMemberIds: existingParticipantIds, participantStatuses: existingStatuses, participantTypes: existingTypes, participantSelectionMode: a.participantSelectionMode || 'MANUAL' });
     setEditActivity(a);
     setIsAddOpen(true);
     setSaveMsg('');
@@ -137,13 +141,13 @@ export default function ActivityList() {
     );
   };
 
-  const toggleParticipant = (memberId) => {
+  const toggleParticipant = (memberId, participantType = 'MEMBER') => {
     setFormData(previous => {
       const current = previous.participantMemberIds || [];
       const next = current.includes(memberId)
         ? current.filter(id => id !== memberId)
         : [...current, memberId];
-      return { ...previous, participantMemberIds: next, participantStatuses: { ...previous.participantStatuses, ...(next.includes(memberId) ? { [memberId]: previous.participantStatuses?.[memberId] || 'WAJIB_HADIR' } : {}) } };
+      return { ...previous, participantMemberIds: next, participantTypes: { ...previous.participantTypes, [memberId]: participantType }, participantStatuses: { ...previous.participantStatuses, ...(next.includes(memberId) ? { [memberId]: previous.participantStatuses?.[memberId] || 'WAJIB_HADIR' } : {}) } };
     });
   };
 
@@ -152,6 +156,7 @@ export default function ActivityList() {
       .filter(member => memberMatchesAKD(member, formData.category))
       .map(member => member.id);
     handleChange('participantMemberIds', selected);
+    handleChange('participantTypes', Object.fromEntries(selected.map(id => [id, 'MEMBER'])));
     handleChange('participantSelectionMode', 'STRUCTURE');
   };
 
@@ -161,10 +166,18 @@ export default function ActivityList() {
     if (mode === 'STRUCTURE') selected = members.filter(member => memberMatchesAKD(member, formData.category)).map(member => member.id);
     if (mode === 'COMMISSION') selected = members.filter(member => String(member.komisi || '').toLowerCase() === String(formData.category || '').toLowerCase()).map(member => member.id);
     if (mode === 'BANGGAR') selected = members.filter(member => /banggar|anggaran/i.test(`${member.komisi || ''} ${member.akdMemberships || ''}`)).map(member => member.id);
+    if (mode === 'BAPEMPERDA') selected = members.filter(member => /bapemperda|pembentukan peraturan daerah/i.test(`${member.komisi || ''} ${member.akdMemberships || ''} ${member.jabatan || ''}`)).map(member => member.id);
     if (mode === 'BK') selected = members.filter(member => /kehormatan|\bbk\b/i.test(`${member.komisi || ''} ${member.akdMemberships || ''} ${member.jabatan || ''}`)).map(member => member.id);
     handleChange('participantMemberIds', selected);
+    handleChange('participantTypes', Object.fromEntries(selected.map(id => [id, 'MEMBER'])));
     handleChange('participantStatuses', Object.fromEntries(selected.map(id => [id, 'WAJIB_HADIR'])));
     handleChange('participantSelectionMode', mode);
+  };
+
+  const selectAllPersonnel = () => {
+    const selected = personnel.filter(item => item.statusActive !== false).map(item => item.id);
+    handleChange('participantMemberIds', Array.from(new Set([...(formData.participantMemberIds || []), ...selected])));
+    handleChange('participantTypes', { ...formData.participantTypes, ...Object.fromEntries(selected.map(id => [id, 'PERSONNEL'])) });
   };
 
   const moveParticipant = (targetMemberId) => {
@@ -189,8 +202,11 @@ export default function ActivityList() {
       const workbook = XLSX.read(loadEvent.target.result, { type: 'array' });
       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: '' });
       const names = rows.flat().map(value => String(value).trim()).filter(value => value.length > 2);
-      const importedIds = members.filter(member => names.some(name => name.toLowerCase() === member.name?.toLowerCase() || name.toLowerCase().includes(member.name?.toLowerCase()))).map(member => member.id);
+      const allParticipants = [...members.map(item => ({ ...item, participantType: 'MEMBER' })), ...personnel.filter(item => item.statusActive !== false).map(item => ({ ...item, participantType: 'PERSONNEL' }))];
+      const imported = allParticipants.filter(item => names.some(name => name.toLowerCase() === item.name?.toLowerCase() || name.toLowerCase().includes(item.name?.toLowerCase())));
+      const importedIds = imported.map(item => item.id);
       handleChange('participantMemberIds', Array.from(new Set([...(formData.participantMemberIds || []), ...importedIds])));
+      handleChange('participantTypes', { ...formData.participantTypes, ...Object.fromEntries(imported.map(item => [item.id, item.participantType])) });
     };
     reader.readAsArrayBuffer(file);
     event.target.value = '';
@@ -215,7 +231,7 @@ export default function ActivityList() {
     e.preventDefault();
     setSaveMsg('');
     if (!Array.isArray(formData.participantMemberIds) || formData.participantMemberIds.length === 0) {
-      setSaveMsg('Pilih minimal satu Anggota DPRD sebagai peserta wajib agenda.');
+      setSaveMsg('Pilih minimal satu peserta agenda.');
       return;
     }
     if (formData.endTime <= formData.startTime) {
@@ -616,9 +632,9 @@ export default function ActivityList() {
               <div className="p-3.5 bg-slate-800/50 rounded-2xl border border-slate-700 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <label className="block font-bold text-slate-300">Anggota DPRD Peserta Agenda {participantsLocked && <span className="text-amber-400">(Dikunci)</span>}</label>
+                    <label className="block font-bold text-slate-300">Peserta Agenda {participantsLocked && <span className="text-amber-400">(Dikunci)</span>}</label>
                     <p className="text-[10px] text-slate-500 mt-0.5">
-                      {formData.participantMemberIds?.length || 0} dari {members.length} anggota dipilih
+                      {formData.participantMemberIds?.length || 0} peserta dipilih ({members.filter(member => formData.participantMemberIds?.includes(member.id)).length} anggota, {personnel.filter(item => formData.participantMemberIds?.includes(item.id)).length} personel)
                     </p>
                   </div>
                   <div className="flex gap-1.5">
@@ -626,10 +642,11 @@ export default function ActivityList() {
                     <button type="button" disabled={participantsLocked} onClick={() => selectParticipantsByMode('STRUCTURE')} className="px-2 py-1.5 rounded-lg bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold disabled:opacity-40">Struktur</button>
                     <button type="button" disabled={participantsLocked} onClick={() => selectParticipantsByMode('COMMISSION')} className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[10px] font-bold disabled:opacity-40">Komisi</button>
                     <button type="button" disabled={participantsLocked} onClick={() => selectParticipantsByMode('BANGGAR')} className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[10px] font-bold disabled:opacity-40">Banggar</button>
+                    <button type="button" disabled={participantsLocked} onClick={() => selectParticipantsByMode('BAPEMPERDA')} className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[10px] font-bold disabled:opacity-40">Bapemperda</button>
                     <button type="button" disabled={participantsLocked} onClick={() => selectParticipantsByMode('BK')} className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[10px] font-bold disabled:opacity-40">BK</button>
                     <button type="button" disabled={participantsLocked} onClick={() => handleChange('participantSelectionMode', 'MANUAL')} className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[10px] font-bold disabled:opacity-40">Manual</button>
                     <button type="button" disabled={participantsLocked} onClick={() => handleChange('participantMemberIds', [])} className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[10px] font-bold disabled:opacity-40">
-                      Kosongkan
+                      Batal Pilih
                     </button>
                     <button type="button" disabled={participantsLocked} onClick={() => participantImportRef.current?.click()} className="px-2 py-1.5 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 text-[10px] font-bold disabled:opacity-40">
                       Import
@@ -637,15 +654,19 @@ export default function ActivityList() {
                     <input ref={participantImportRef} type="file" accept=".xlsx,.xls,.csv,.tsv" onChange={importParticipants} className="hidden" />
                   </div>
                 </div>
+                <div className="flex gap-1.5 border-b border-slate-700 pb-2">
+                  {[["MEMBER", `Anggota DPRD (${members.length})`], ["PERSONNEL", `Personel Sekretariat (${personnel.filter(item => item.statusActive !== false).length})`]].map(([tab, label]) => <button key={tab} type="button" onClick={() => setParticipantTab(tab)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${participantTab === tab ? 'bg-cyan-600/20 text-cyan-300 border border-cyan-500/30' : 'bg-slate-900 text-slate-400'}`}>{label}</button>)}
+                  {participantTab === 'PERSONNEL' && <button type="button" disabled={participantsLocked} onClick={selectAllPersonnel} className="ml-auto px-2 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 text-[10px] font-bold disabled:opacity-40">Pilih Semua</button>}
+                </div>
                 <div className="max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">
-                  {members.map(member => {
+                  {(participantTab === 'MEMBER' ? members : personnel.filter(item => item.statusActive !== false)).map(member => {
                     const selected = formData.participantMemberIds?.includes(member.id);
                     return (
                       <label key={member.id} draggable={selected} onDragStart={() => setDraggedMemberId(member.id)} onDragOver={event => event.preventDefault()} onDrop={() => moveParticipant(member.id)} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer ${selected ? 'bg-emerald-500/10 border-emerald-500/30' : 'border-slate-700 hover:border-slate-600'}`}>
-                        <input type="checkbox" disabled={participantsLocked} checked={selected} onChange={() => toggleParticipant(member.id)} className="accent-emerald-500" />
+                        <input type="checkbox" disabled={participantsLocked} checked={selected} onChange={() => toggleParticipant(member.id, participantTab)} className="accent-emerald-500" />
                         <span className="min-w-0">
                           <span className="block text-[11px] text-slate-200 truncate">{member.name}</span>
-                          <span className="block text-[9px] text-slate-500 truncate">{member.komisi || member.fraksi || 'Anggota DPRD'}</span>
+                          <span className="block text-[9px] text-slate-500 truncate">{participantTab === 'PERSONNEL' ? `${member.nip || 'Tanpa NIP'} • ${member.jabatan || ''} • ${member.unit || ''}` : (member.komisi || member.fraksi || 'Anggota DPRD')}</span>
                         </span>
                         {selected && <select value={formData.participantStatuses?.[member.id] || 'WAJIB_HADIR'} disabled={participantsLocked} onChange={event => handleChange('participantStatuses', { ...formData.participantStatuses, [member.id]: event.target.value })} onClick={event => event.stopPropagation()} className="ml-auto w-28 shrink-0 rounded bg-slate-900 border border-slate-700 p-1 text-[9px] text-slate-200">
                           <option value="WAJIB_HADIR">Wajib Hadir</option><option value="UNDANGAN">Peserta Undangan</option><option value="OPSIONAL">Opsional</option>
