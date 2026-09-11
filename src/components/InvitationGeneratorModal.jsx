@@ -37,7 +37,16 @@ export default function InvitationGeneratorModal({ isOpen, onClose, activity, me
 
   if (!isOpen || !activity) return null;
 
-  const baseUrl = `${window.location.origin}${window.location.pathname}`;
+  const getInvitationBaseUrl = () => {
+    const { protocol, hostname, port, pathname } = window.location;
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+    const lanIp = isLocalhost ? localStorage.getItem('siraport_lan_ip') : hostname;
+    const lanPort = port || localStorage.getItem('siraport_lan_port') || '5173';
+    const host = lanIp || hostname;
+    const portSuffix = lanPort ? `:${lanPort}` : '';
+    return `${protocol}//${host}${portSuffix}${pathname}`;
+  };
+  const baseUrl = getInvitationBaseUrl();
   const getQrValue = (member) => `${baseUrl}?absen=${activity.id}&token=${encodeURIComponent(`${activity.qrToken || activity.id}:${member.id}`)}`;
   const getOpdQrValue = (recipient) => `${baseUrl}?absen=${activity.id}&type=opd&guestId=${encodeURIComponent(recipient.id)}&category=OPD/INSTANSI&agency=${encodeURIComponent(recipient.agency)}&name=${encodeURIComponent(recipient.invitedName)}&position=${encodeURIComponent(recipient.position || '')}&token=${encodeURIComponent(`${activity.qrToken || activity.id}:${recipient.id}`)}`;
   const addOpdRecipient = async (event) => {

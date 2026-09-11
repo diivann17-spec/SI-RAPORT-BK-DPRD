@@ -145,8 +145,9 @@ export default function NotificationCenter() {
 
       activities.forEach((activity) => {
         const lg = mLogs.find(log => log.activityId === activity.id);
-        if (lg?.status === 'Hadir' || lg?.status === 'Dinas') score += 1;
-        else if (lg?.status === 'Terlambat' || lg?.status === 'Izin' || lg?.status === 'Sakit') score += 0.75;
+        const st = String(lg?.status || '').toLowerCase();
+        if (st === 'hadir' || st === 'dinas' || st.includes('on time') || st === 'dinas luar') score += 1;
+        else if (st.includes('terlambat') || st === 'izin' || st === 'sakit') score += 0.75;
       });
 
       return Math.round((score / totalAct) * 100) <= 50;

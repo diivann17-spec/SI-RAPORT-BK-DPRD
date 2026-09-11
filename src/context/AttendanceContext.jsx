@@ -6,7 +6,7 @@ import {
 import { db } from '../firebase/config';
 import { getRaportCategory, getDisciplineGrade, calculateAttendanceStatus } from '../utils/raportUtils';
 import { getDeviceFingerprint, validateDeviceSingleAttendance } from '../utils/deviceUtils';
-import { DEFAULT_ROOMS, hasRoomConflict } from '../utils/roomUtils';
+import { DEFAULT_ROOMS, findRoomConflict } from '../utils/roomUtils';
 // Mock data dihapus — app mulai kosong, data dari Firestore / input manual
 
 const AttendanceContext = createContext();
@@ -59,6 +59,30 @@ const normalizeRole = (role) => {
   }
 
   return 'PETUGAS_BK';
+};
+
+const safeDbWrite = async (operation, timeoutMs = 4000, timeoutMessage = 'Koneksi ke server gagal. Data tersimpan secara lokal dan akan disinkronisasi saat koneksi kembali.') => {
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+  });
+
+  try {
+    await Promise.race([operation(), timeoutPromise]);
+    return { ok: true, timedOut: false };
+  } catch (error) {
+    console.warn(timeoutMessage, error);
+    return {
+      ok: false,
+      timedOut: true,
+      message: timeoutMessage,
+    };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 };
 
 export function AttendanceProvider({ children }) {
@@ -518,10 +542,14 @@ export function AttendanceProvider({ children }) {
       };
       setAuditLogs(prev => [newAudit, ...prev]);
 
-      await addDoc(collection(db, COL.AUDIT), {
-        ...newAudit,
-        timestamp: serverTimestamp(),
-      });
+      await safeDbWrite(
+        () => addDoc(collection(db, COL.AUDIT), {
+          ...newAudit,
+          timestamp: serverTimestamp(),
+        }),
+        5000,
+        'Koneksi ke server gagal saat menulis log audit.'
+      );
     } catch (e) { /* fallback offline */ }
   }, [currentRole, currentUser]);
 
@@ -560,10 +588,10 @@ export function AttendanceProvider({ children }) {
       const st = (log?.status || '').toLowerCase();
       if (!log || st === 'tanpa keterangan' || st === 'alpha' || st === 'alpa') {
         alpa++;
-      } else if (st === 'hadir' || st === 'hadir tepat waktu') {
+      } else if (st === 'hadir' || st === 'hadir tepat waktu' || st.includes('on time')) {
         score += 1;
         hadir++;
-      } else if (st === 'terlambat' || st === 'hadir terlambat') {
+      } else if (st.includes('terlambat')) {
         score += 0.8;
         terlambat++;
       } else if (st === 'dinas' || st === 'dinas luar' || st === 'tugas kedinasan') {
@@ -610,11 +638,18 @@ export function AttendanceProvider({ children }) {
     invitationToken = null
   }) => {
     try {
+      if (method === 'MANUAL_OVERRIDE' && !['SECRETARIAT_ADMIN', 'PETUGAS_BK', 'PETUGAS_SCAN'].includes(currentRole)) {
+        return { success: false, message: 'Input Manual hanya dapat dilakukan Admin Sekretariat atau Petugas.' };
+      }
       const member = getMemberById(memberId);
       const activity = activities.find(a => a.id === activityId);
       const previousLog = logs.find(l => l.activityId === activityId && l.memberId === memberId);
       if (!member) return { success: false, message: 'Data Anggota DPRD tidak ditemukan.' };
       if (!activity) return { success: false, message: 'Agenda Kegiatan tidak ditemukan.' };
+      const participantStatus = activity.participantStatuses?.[memberId] || 'WAJIB_HADIR';
+      if (!['WAJIB_HADIR', 'UNDANGAN', 'OPSIONAL'].includes(participantStatus)) {
+        return { success: false, message: 'Status peserta pada agenda tidak valid. Perbarui data peserta terlebih dahulu.' };
+      }
       if (method === 'GPS_ONLINE') {
         if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
           return { success: false, message: 'Absensi GPS ditolak karena data lokasi perangkat tidak valid.' };
@@ -663,7 +698,7 @@ export function AttendanceProvider({ children }) {
         }
       }
 
-      // Validasi Waktu Otomatis (Belum Dimulai / Kedaluwarsa / Terlambat)
+      // Validasi Waktu Otomatis (Belum Dimulai / Dalam Toleransi / Terlambat)
       let calculatedStatus = status;
       let diffNote = '';
       if (!calculatedStatus || method === 'QR_AGENDA' || method === 'QR_WEBCAM' || method === 'GPS_ONLINE') {
@@ -677,7 +712,7 @@ export function AttendanceProvider({ children }) {
         if (timeCalc.isExpired && method !== 'MANUAL_OVERRIDE') {
           return {
             success: false,
-            message: `Absensi Gagal: QR Code kegiatan sudah kedaluwarsa. Agenda telah selesai pada pukul ${activity.endTime || '16:00'} WIB.`
+            message: `Absensi Gagal: Agenda sudah berakhir pada pukul ${activity.endTime || '16:00'} WIB.`
           };
         }
         calculatedStatus = calculatedStatus || timeCalc.status;
@@ -691,6 +726,8 @@ export function AttendanceProvider({ children }) {
         roomName: activity.roomName || activity.locationName || '',
         participantType: 'INTERNAL',
         participantCategory: 'ANGGOTA DPRD',
+        participantStatus,
+        includedInRaport: participantStatus === 'WAJIB_HADIR',
         memberId,
         memberName: member.name,
         memberFraksi: member.fraksi || '',
@@ -729,33 +766,75 @@ export function AttendanceProvider({ children }) {
         return nextLogs;
       });
 
+      let remoteWriteResult = { ok: true, timedOut: false };
       try {
-        await setDoc(doc(db, COL.LOGS, newLog.id), {
-          ...newLog,
-          createdAt: serverTimestamp(),
-        }, { merge: true });
+        remoteWriteResult = await safeDbWrite(
+          () => setDoc(doc(db, COL.LOGS, newLog.id), {
+            ...newLog,
+            createdAt: serverTimestamp(),
+          }, { merge: true }),
+          1500,
+          'Koneksi ke server gagal saat menyimpan absensi. Data sudah tersimpan di perangkat dan akan disinkronisasi saat koneksi tersedia.'
+        );
       } catch (e) {
         console.warn('Firestore write warning (offline fallback active):', e);
       }
 
-      await logAudit({
+      void logAudit({
         action: 'ATTENDANCE_RECORDED',
         details: `${previousLog ? `Perubahan status ${previousLog.status || 'Belum Hadir'} menjadi ${calculatedStatus}` : `Presensi baru [${calculatedStatus}]`} untuk ${member.name} pada agenda "${activity.title}" via ${method}${note ? ` — Alasan: ${note}` : ''}`,
         method,
       });
 
-      return { success: true, log: newLog };
+      return {
+        success: true,
+        log: newLog,
+        warning: remoteWriteResult?.timedOut ? remoteWriteResult.message : null,
+      };
     } catch (err) {
       return { success: false, message: err.message };
     }
   };
 
-  const checkoutAttendance = async ({ activityId, memberId, method = 'QR_AGENDA', operatorName = null, note = '', lat = null, lng = null, distanceMeters = null }) => {
+  const checkoutAttendance = async ({
+    activityId,
+    memberId = null,
+    guestId = null,
+    participantType = 'INTERNAL',
+    agency = '',
+    invitedName = '',
+    method = 'QR_AGENDA',
+    operatorName = null,
+    note = '',
+    lat = null,
+    lng = null,
+    distanceMeters = null
+  }) => {
     try {
-      const member = getMemberById(memberId);
       const activity = activities.find(item => item.id === activityId);
-      const existingLog = logs.find(log => log.activityId === activityId && log.memberId === memberId && log.participantType !== 'EXTERNAL');
-      if (!member || !activity) return { success: false, message: 'Agenda atau anggota tidak ditemukan.' };
+      if (!activity) return { success: false, message: 'Agenda tidak ditemukan.' };
+
+      let existingLog = null;
+      if (participantType === 'EXTERNAL') {
+        existingLog = logs.find(log =>
+          log.activityId === activityId &&
+          log.participantType === 'EXTERNAL' &&
+          (
+            (guestId && log.guestId === guestId) ||
+            (
+              !guestId &&
+              String(log.agency || '').trim().toLowerCase() === String(agency || '').trim().toLowerCase() &&
+              String(log.invitedName || '').trim().toLowerCase() === String(invitedName || '').trim().toLowerCase()
+            )
+          )
+        );
+      } else {
+        existingLog = logs.find(log => log.activityId === activityId && log.memberId === memberId && log.participantType !== 'EXTERNAL');
+      }
+
+      if (!existingLog) return { success: false, message: 'Check-out tidak dapat dilakukan sebelum Check-in.' };
+      if (existingLog.checkOutAt) return { success: false, message: 'Peserta ini sudah melakukan Check-out pada agenda tersebut.' };
+
       if (method === 'GPS_ONLINE') {
         if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
           return { success: false, message: 'Check-out GPS ditolak karena data lokasi perangkat tidak valid.' };
@@ -764,16 +843,17 @@ export function AttendanceProvider({ children }) {
           return { success: false, message: 'Check-out GPS ditolak karena lokasi perangkat berada di luar radius lokasi agenda.' };
         }
       }
-      if (!existingLog) return { success: false, message: 'Check-out tidak dapat dilakukan sebelum Check-in.' };
-      if (existingLog.checkOutAt) return { success: false, message: 'Anggota ini sudah melakukan Check-out pada agenda tersebut.' };
 
+      const attendeeName = existingLog.memberName || existingLog.guestName || existingLog.invitedName || 'Peserta';
       const checkInAt = new Date(existingLog.checkInAt || existingLog.timestamp);
       const checkOutAt = new Date();
       const durationMinutes = Math.max(0, Math.round((checkOutAt - checkInAt) / 60000));
       const [year, month, day] = String(activity.date || '').split('-').map(Number);
       const [endHour, endMinute] = String(activity.endTime || '16:00').split(':').map(Number);
       const endDate = year && month && day ? new Date(year, month - 1, day, endHour, endMinute, 0) : null;
-      const checkoutStatus = endDate && checkOutAt < endDate ? 'Pulang Lebih Awal' : 'Mengikuti Kegiatan Selesai';
+      const checkoutStatus = endDate && checkOutAt < endDate
+        ? `Pulang Lebih Awal – ${Math.max(1, Math.round((endDate - checkOutAt) / 60000))} Menit`
+        : 'Selesai/Normal';
       const updatedLog = {
         ...existingLog,
         checkOutAt: checkOutAt.toISOString(),
@@ -782,11 +862,20 @@ export function AttendanceProvider({ children }) {
         methodCheckout: method,
         checkoutOperatorName: operatorName || currentUser?.name || 'Mandiri',
         checkoutNote: note,
+        status: existingLog.status || 'On Time',
       };
+
       setLogs(previous => previous.map(log => log.id === existingLog.id ? updatedLog : log));
-      try { await setDoc(doc(db, COL.LOGS, existingLog.id), { ...updatedLog, updatedAt: serverTimestamp() }, { merge: true }); } catch (e) { console.warn('Firestore checkout warning:', e); }
-      await logAudit({ action: 'ATTENDANCE_CHECKOUT', details: `Check-out ${member.name} pada agenda ${activity.title}: ${checkoutStatus}, durasi ${durationMinutes} menit`, method });
-      return { success: true, log: updatedLog };
+      let remoteWriteResult = { ok: true, timedOut: false };
+      try {
+        remoteWriteResult = await safeDbWrite(
+          () => setDoc(doc(db, COL.LOGS, existingLog.id), { ...updatedLog, updatedAt: serverTimestamp() }, { merge: true }),
+          1500,
+          'Koneksi ke server gagal saat menyimpan check-out. Data sudah dicatat di perangkat dan akan disinkronisasi saat koneksi tersedia.'
+        );
+      } catch (e) { console.warn('Firestore checkout warning:', e); }
+      void logAudit({ action: 'ATTENDANCE_CHECKOUT', details: `Check-out ${attendeeName} pada agenda ${activity.title}: ${checkoutStatus}, durasi ${durationMinutes} menit`, method });
+      return { success: true, log: updatedLog, warning: remoteWriteResult?.timedOut ? remoteWriteResult.message : null };
     } catch (err) {
       return { success: false, message: err.message };
     }
@@ -823,16 +912,23 @@ export function AttendanceProvider({ children }) {
       const deviceInfo = getDeviceFingerprint();
       const currentGuestId = guestId || `GST-${Date.now()}`;
 
-      // Validasi 1 Tamu / Instansi Hanya Bisa 1x Absen per Agenda (Cegah Duplikat Absen)
+      // Validasi 1 Tamu / Instansi Hanya Bisa 1x Check-in dan 1x Check-out per Agenda
       const existingGuestLog = logs.find(l => 
         l.activityId === activityId && 
         l.participantType === 'EXTERNAL' && 
         ((l.guestId && l.guestId === currentGuestId) || (l.agency && l.agency.toLowerCase() === agency.toLowerCase() && l.invitedName?.toLowerCase() === (invitedName || '').toLowerCase()))
       );
       if (existingGuestLog) {
+        if (existingGuestLog.checkOutAt) {
+          return {
+            success: false,
+            message: `Absensi Gagal: Tamu/Instansi "${agency}" (${invitedName}) sudah menyelesaikan check-in dan check-out pada agenda ini.`
+          };
+        }
+
         return {
           success: false,
-          message: `Absensi Gagal: Tamu/Instansi "${agency}" (${invitedName}) sudah terdaftar hadir pada agenda ini sebelumnya.`
+          message: `Absensi Gagal: Tamu/Instansi "${agency}" (${invitedName}) sudah check-in pada agenda ini. Lakukan check-out untuk mengakhiri kehadiran.`
         };
       }
 
@@ -847,15 +943,20 @@ export function AttendanceProvider({ children }) {
       if (timeCalc.isExpired) {
         return {
           success: false,
-          message: `Absensi Tamu Gagal: Agenda telah selesai pada pukul ${activity.endTime || '16:00'} WIB.`
+          message: `Absensi Tamu Gagal: Agenda sudah berakhir pada pukul ${activity.endTime || '16:00'} WIB.`
         };
       }
 
       // Validasi 1 Perangkat 1x Absensi per Agenda
 
       // Validasi status perwakilan
-      const finalStatus = isRepresented ? 'Diwakili' : status;
+      const finalStatus = isRepresented
+        ? 'Diwakili'
+        : status && status !== 'Hadir'
+          ? status
+          : timeCalc.status;
 
+      const checkInAt = new Date().toISOString();
       const newLog = {
         id: `ATT-GST-${Date.now()}`,
         activityId,
@@ -863,6 +964,8 @@ export function AttendanceProvider({ children }) {
         roomName: activity.roomName || activity.locationName || '',
         participantType: 'EXTERNAL',
         participantCategory,
+        participantStatus: 'EXTERNAL',
+        includedInRaport: false,
         guestId: currentGuestId,
         agency,
         guestAgency: agency,
@@ -873,7 +976,11 @@ export function AttendanceProvider({ children }) {
         isRepresented,
         representativeName: isRepresented ? representativeName : null,
         representativePosition: isRepresented ? representativePosition : null,
-        timestamp: new Date().toISOString(),
+        timestamp: checkInAt,
+        checkInAt,
+        checkOutAt: null,
+        durationMinutes: 0,
+        checkoutStatus: 'Masih Mengikuti Kegiatan',
         status: finalStatus,
         method: 'GUEST_CHECKIN',
         operatorName: operatorName || currentUser?.name || 'Meja Tamu OPD',
@@ -893,22 +1000,31 @@ export function AttendanceProvider({ children }) {
         return nextLogs;
       });
 
+      let remoteWriteResult = { ok: true, timedOut: false };
       try {
-        await setDoc(doc(db, COL.LOGS, newLog.id), {
-          ...newLog,
-          createdAt: serverTimestamp(),
-        }, { merge: true });
+        remoteWriteResult = await safeDbWrite(
+          () => setDoc(doc(db, COL.LOGS, newLog.id), {
+            ...newLog,
+            createdAt: serverTimestamp(),
+          }, { merge: true }),
+          1500,
+          'Koneksi ke server gagal saat menyimpan absensi tamu. Data sudah tersimpan di perangkat dan akan disinkronisasi saat koneksi tersedia.'
+        );
       } catch (e) {
         console.warn('Firestore guest write warning (offline fallback active):', e);
       }
 
-      await logAudit({
+      void logAudit({
         action: 'GUEST_CHECKIN',
         details: `Check-in Tamu Eksternal [${agency}] - ${isRepresented ? `Diwakili: ${representativeName}` : invitedName} pada "${activity.title}"`,
         method: 'GUEST_CHECKIN'
       });
 
-      return { success: true, log: newLog };
+      return {
+        success: true,
+        log: newLog,
+        warning: remoteWriteResult?.timedOut ? remoteWriteResult.message : null,
+      };
     } catch (err) {
       return { success: false, message: err.message };
     }
@@ -1069,8 +1185,14 @@ export function AttendanceProvider({ children }) {
     const participantLogs = internalLogs.filter(log => participantMembers.some(member => member.id === log.memberId));
     const internalStats = {
       totalMandatory: participantMembers.length,
-      hadir: participantLogs.filter(l => l.status === 'Hadir' || l.status === 'Hadir Tepat Waktu').length,
-      terlambat: participantLogs.filter(l => l.status === 'Terlambat' || l.status === 'Hadir Terlambat').length,
+      hadir: participantLogs.filter(l => {
+        const st = String(l.status || '').toLowerCase();
+        return st === 'hadir' || st === 'hadir tepat waktu' || st.includes('on time');
+      }).length,
+      terlambat: participantLogs.filter(l => {
+        const st = String(l.status || '').toLowerCase();
+        return st.includes('terlambat');
+      }).length,
       dinasLuar: participantLogs.filter(l => l.status === 'Dinas Luar' || l.status === 'Dinas').length,
       izin: participantLogs.filter(l => l.status === 'Izin').length,
       sakit: participantLogs.filter(l => l.status === 'Sakit').length,
@@ -1081,7 +1203,10 @@ export function AttendanceProvider({ children }) {
     const invitedTotal = activity.invitedGuests?.length || externalLogs.length;
     const externalStats = {
       totalInvited: invitedTotal,
-      hadirLangsung: externalLogs.filter(l => l.status === 'Hadir' && !l.isRepresented).length,
+      hadirLangsung: externalLogs.filter(l => {
+        const st = String(l.status || '').toLowerCase();
+        return !l.isRepresented && (st === 'hadir' || st.includes('on time'));
+      }).length,
       diwakili: externalLogs.filter(l => l.isRepresented || l.status === 'Diwakili').length,
       belumHadir: Math.max(0, invitedTotal - externalLogs.length)
     };
@@ -1328,7 +1453,15 @@ export function AttendanceProvider({ children }) {
   // ─── Activity CRUD ───────────────────────────────────────────────────────
   const addActivity = async (actData) => {
     try {
-      if (actData.roomId && hasRoomConflict(activities, actData)) return { success: false, message: 'Ruangan sudah digunakan agenda lain pada waktu yang sama.' };
+      if (actData.roomId || actData.locationName || actData.roomName) {
+        const conflict = findRoomConflict(activities, actData);
+        if (conflict) {
+          return {
+            success: false,
+            message: `Agenda tidak dapat disimpan. Ruangan sudah digunakan agenda "${conflict.title || conflict.id}" pada ${conflict.date}, pukul ${conflict.startTime || '00:00'}–${conflict.endTime || '23:59'} WIB. Pilih ruangan atau waktu lain.`
+          };
+        }
+      }
       // Gunakan timestamp unik agar ID tidak bentrok dengan ID agenda lama yang memiliki riwayat log
       const uniqueSuffix = Date.now().toString().slice(-4);
       const generatedId = `ACT-2026-${uniqueSuffix}`;
@@ -1366,7 +1499,15 @@ export function AttendanceProvider({ children }) {
 
   const updateActivity = async (activityId, actData) => {
     try {
-      if (actData.roomId && hasRoomConflict(activities, actData, activityId)) return { success: false, message: 'Ruangan sudah digunakan agenda lain pada waktu yang sama.' };
+      if (actData.roomId || actData.locationName || actData.roomName) {
+        const conflict = findRoomConflict(activities, actData, activityId);
+        if (conflict) {
+          return {
+            success: false,
+            message: `Agenda tidak dapat diperbarui. Ruangan sudah digunakan agenda "${conflict.title || conflict.id}" pada ${conflict.date}, pukul ${conflict.startTime || '00:00'}–${conflict.endTime || '23:59'} WIB. Pilih ruangan atau waktu lain.`
+          };
+        }
+      }
       const normalizedData = {
         ...actData,
         ...(actData.roomId ? { roomName: rooms.find(room => room.id === actData.roomId)?.name || actData.locationName || '' } : {})

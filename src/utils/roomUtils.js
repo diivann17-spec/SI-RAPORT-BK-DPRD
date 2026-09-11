@@ -11,11 +11,21 @@ export const DEFAULT_ROOMS = [
 ];
 
 export function hasRoomConflict(activities, candidate, ignoredActivityId = null) {
-  if (!candidate?.roomId || !candidate.date) return false;
+  return Boolean(findRoomConflict(activities, candidate, ignoredActivityId));
+}
+
+export function findRoomConflict(activities, candidate, ignoredActivityId = null) {
+  if ((!candidate?.roomId && !candidate?.locationName && !candidate?.roomName) || !candidate.date) return false;
   const start = candidate.startTime || '00:00';
   const end = candidate.endTime || '23:59';
-  return activities.some(activity => {
-    if (activity.id === ignoredActivityId || activity.roomId !== candidate.roomId || activity.date !== candidate.date) return false;
+  const candidateRoomId = String(candidate.roomId || '').trim();
+  const candidateRoomName = String(candidate.locationName || candidate.roomName || '').trim().toLowerCase();
+  return activities.find(activity => {
+    const activityRoomId = String(activity.roomId || '').trim();
+    const activityRoomName = String(activity.locationName || activity.roomName || '').trim().toLowerCase();
+    const sameRoom = (candidateRoomId && activityRoomId && activityRoomId === candidateRoomId)
+      || (candidateRoomName && activityRoomName && activityRoomName === candidateRoomName);
+    if (activity.id === ignoredActivityId || !sameRoom || activity.date !== candidate.date) return false;
     const otherStart = activity.startTime || '00:00';
     const otherEnd = activity.endTime || '23:59';
     return start < otherEnd && otherStart < end;

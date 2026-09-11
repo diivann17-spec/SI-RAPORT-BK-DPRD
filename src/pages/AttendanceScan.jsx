@@ -5,7 +5,7 @@ import ManualAttendanceModal from '../components/ManualAttendanceModal';
 import ActivityQRModal from '../components/ActivityQRModal';
 import GuestAttendanceModal from '../components/GuestAttendanceModal';
 import LPJViewerModal from '../components/LPJViewerModal';
-import { getStatusBadge, getMethodBadge } from '../utils/raportUtils';
+import { getStatusBadge, getMethodBadge, formatCheckInWithStatus } from '../utils/raportUtils';
 import {
   Camera,
   Edit3,
@@ -81,7 +81,7 @@ export default function AttendanceScan() {
   });
 
   const participantLogs = internalLogs.filter(log => participantIds.includes(log.memberId));
-  const checkedInCount = participantLogs.filter(l => l.status === 'Hadir' || l.status === 'Hadir Tepat Waktu' || l.status === 'Terlambat' || l.status === 'Hadir Terlambat').length;
+  const checkedInCount = participantLogs.length;
   const dinasCount = participantLogs.filter(l => l.status === 'Dinas Luar' || l.status === 'Dinas').length;
   const izinCount = participantLogs.filter(l => l.status === 'Izin').length;
   const sakitCount = participantLogs.filter(l => l.status === 'Sakit').length;
@@ -347,7 +347,7 @@ export default function AttendanceScan() {
                       </p>
                       {log && (
                         <span className="text-[10px] text-slate-500 font-mono block mt-0.5">
-                          IN {new Date(log.checkInAt || log.timestamp).toLocaleTimeString('id-ID')} WIB • {log.method}
+                          IN {formatCheckInWithStatus(log)} • {log.method}
                           {log.checkOutAt && ` • OUT ${new Date(log.checkOutAt).toLocaleTimeString('id-ID')} WIB`}
                         </span>
                       )}
@@ -399,7 +399,7 @@ export default function AttendanceScan() {
               <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
                 <table className="w-full min-w-[820px] text-xs text-left">
                   <thead><tr className="bg-slate-100 dark:bg-slate-800 text-slate-500"><th className="p-3">No</th><th className="p-3">Nama</th><th className="p-3">Jabatan</th><th className="p-3">Instansi</th><th className="p-3">Jenis</th><th className="p-3">Check-in</th><th className="p-3">Check-out</th><th className="p-3">Keterangan</th></tr></thead>
-                  <tbody>{externalLogs.map((gst, index) => <tr key={`report-${gst.id}`} className="border-t border-slate-200 dark:border-slate-800"><td className="p-3">{index + 1}</td><td className="p-3 font-bold text-slate-900 dark:text-white">{gst.isRepresented ? gst.representativeName : gst.guestName || gst.invitedName}</td><td className="p-3">{gst.isRepresented ? gst.representativePosition : gst.position || '-'}</td><td className="p-3">{gst.agency || gst.guestAgency || '-'}</td><td className="p-3">{gst.participantCategory || 'OPD/INSTANSI'}</td><td className="p-3 font-mono">{gst.timestamp ? new Date(gst.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'} WIB</td><td className="p-3 font-mono">{gst.checkOutAt ? `${new Date(gst.checkOutAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : '-'}</td><td className="p-3">{gst.note || (gst.isRepresented ? 'Hadir sebagai perwakilan' : gst.status || 'Hadir')}</td></tr>)}</tbody>
+                  <tbody>{externalLogs.map((gst, index) => <tr key={`report-${gst.id}`} className="border-t border-slate-200 dark:border-slate-800"><td className="p-3">{index + 1}</td><td className="p-3 font-bold text-slate-900 dark:text-white">{gst.isRepresented ? gst.representativeName : gst.guestName || gst.invitedName}</td><td className="p-3">{gst.isRepresented ? gst.representativePosition : gst.position || '-'}</td><td className="p-3">{gst.agency || gst.guestAgency || '-'}</td><td className="p-3">{gst.participantCategory || 'OPD/INSTANSI'}</td><td className="p-3 font-mono">{formatCheckInWithStatus(gst)}</td><td className="p-3 font-mono">{gst.checkOutAt ? `${new Date(gst.checkOutAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : '-'}</td><td className="p-3">{gst.note || (gst.isRepresented ? 'Hadir sebagai perwakilan' : gst.status || 'Hadir')}</td></tr>)}</tbody>
                 </table>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

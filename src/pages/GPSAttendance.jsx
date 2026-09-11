@@ -156,7 +156,7 @@ export default function GPSAttendance() {
       }
       const checkoutResult = await checkoutAttendance({ activityId: selectedActivity.id, memberId: activeMemberId, method: 'GPS_ONLINE', operatorName: 'Mandiri (Mobile Presensi)', lat: Number(userLocation.lat), lng: Number(userLocation.lng), distanceMeters: Math.round(radiusCheck.distance) });
       setIsSubmitting(false);
-      if (checkoutResult.success) setSubmitSuccess(checkoutResult.log);
+      if (checkoutResult.success) setSubmitSuccess({ ...checkoutResult.log, warning: checkoutResult.warning || null });
       else setSubmitError(checkoutResult.message || 'Gagal menyimpan Check-out GPS.');
       return;
     }
@@ -186,7 +186,7 @@ export default function GPSAttendance() {
     setIsSubmitting(false);
 
     if (res.success) {
-      setSubmitSuccess(res.log);
+      setSubmitSuccess({ ...res.log, warning: res.warning || null });
       confetti({ particleCount: 60, spread: 70, origin: { y: 0.7 } });
     } else {
       setSubmitError(res.message || 'Gagal mengirimkan presensi GPS.');
@@ -347,6 +347,7 @@ export default function GPSAttendance() {
                   <p className="text-[11px] text-emerald-200 mt-0.5">
                     {submitSuccess.checkOutAt ? <>Check-in: <strong>{new Date(submitSuccess.checkInAt || submitSuccess.timestamp).toLocaleTimeString('id-ID')} WIB</strong> • Check-out: <strong>{new Date(submitSuccess.checkOutAt).toLocaleTimeString('id-ID')} WIB</strong> • Durasi: <strong>{submitSuccess.durationMinutes} menit</strong></> : <>Status: <strong>{submitSuccess.status}</strong> • Metode: {submitSuccess.method}</>}
                   </p>
+                  {submitSuccess.warning && <p className="text-[11px] text-amber-300 mt-1"><strong>Sinkronisasi:</strong> {submitSuccess.warning}</p>}
                 </div>
               </div>
             )}

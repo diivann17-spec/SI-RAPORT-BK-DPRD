@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
-import { getStatusBadge, getMethodBadge } from '../utils/raportUtils';
+import { getStatusBadge, getMethodBadge, formatCheckInWithStatus } from '../utils/raportUtils';
 import dprdLogo from '../logo.png';
 import {
   FileSpreadsheet,
@@ -267,7 +267,7 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
                       return (
                         <tr key={act.id} className="hover:bg-slate-50">
                           <td className="p-2 font-mono text-[10px] whitespace-nowrap">
-                            {act.date} {log ? new Date(log.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                            {act.date} {log ? formatCheckInWithStatus(log) : '-'}
                           </td>
                           <td className="p-2 font-medium">{act.title}</td>
                           <td className="p-2 text-center whitespace-nowrap">

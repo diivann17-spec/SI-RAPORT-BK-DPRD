@@ -16,27 +16,54 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
   const [cameraError, setCameraError] = useState('');
   const [scannerReady, setScannerReady] = useState(false);
   const scannerRef = useRef(null);
+  const camerasRef = useRef([]);
   const scannerDivId = 'qr-reader-scan-box';
   const hasScanned = useRef(false); // prevent double-scan
 
   const selectedActivity = activities.find(a => a.id === (selectedActivityId || activityId)) || activities[0];
 
-  const stopScanner = useCallback(() => {
-    if (scannerRef.current) {
-      try {
-        scannerRef.current.stop().then(() => {
-          scannerRef.current.clear();
-          scannerRef.current = null;
-          setScannerReady(false);
-        }).catch(() => {
-          scannerRef.current = null;
-          setScannerReady(false);
-        });
-      } catch (e) {
-        scannerRef.current = null;
-      }
+  const stopScanner = useCallback(async () => {
+    const scanner = scannerRef.current;
+    if (!scanner) {
+      setScannerReady(false);
+      return;
+    }
+
+    scannerRef.current = null;
+    try {
+      await scanner.stop();
+      scanner.clear();
+    } catch (e) {
+      // Scanner may already be stopped after a successful decode.
+    } finally {
+      setScannerReady(false);
     }
   }, []);
+
+  const restartScanner = useCallback(async (onDecoded) => {
+    try {
+      await stopScanner();
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const html5QrCode = new Html5Qrcode(scannerDivId);
+      scannerRef.current = html5QrCode;
+      const cameras = camerasRef.current.length > 0
+        ? camerasRef.current
+        : await Html5Qrcode.getCameras();
+      camerasRef.current = cameras;
+      if (!cameras?.length) throw new Error('Tidak ada kamera yang terdeteksi.');
+      const backCamera = cameras.find(camera => /back|rear|environment/i.test(camera.label || ''));
+      await html5QrCode.start(
+        backCamera?.id || cameras[0].id,
+        { fps: 20, qrbox: { width: 250, height: 250 } },
+        onDecoded,
+        () => {}
+      );
+      setScannerReady(true);
+    } catch (error) {
+      setScannerReady(false);
+      setCameraError(`Kamera gagal dimulai ulang: ${error?.message || error}`);
+    }
+  }, [stopScanner]);
 
   // Handle QR decoded data → lookup member → record attendance
   const handleQRScanned = useCallback(async (decodedText) => {
@@ -46,31 +73,79 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     setScanError('');
 
     // Stop kamera segera setelah scan berhasil
-    stopScanner();
+    await stopScanner();
 
     const cleanText = (decodedText || '').trim();
+    const recoverScan = () => {
+      setIsProcessing(false);
+      hasScanned.current = false;
+      void restartScanner(handleQRScanned);
+    };
 
     let scannedUrl = null;
+    let invitationToken = null;
     try { scannedUrl = new URL(cleanText); } catch (e) {}
     if (scannedUrl?.searchParams.get('type') === 'opd') {
       if (!selectedActivity) {
         setScanError('Tidak ada agenda kegiatan yang dipilih.');
-        setIsProcessing(false);
-        hasScanned.current = false;
+        recoverScan();
         return;
       }
+
+      const guestId = scannedUrl.searchParams.get('guestId') || null;
+      const agency = scannedUrl.searchParams.get('agency') || 'OPD/Instansi';
+      const invitedName = scannedUrl.searchParams.get('name') || 'Peserta OPD';
+      const participantCategory = scannedUrl.searchParams.get('category') || 'OPD/INSTANSI';
+      const invitationToken = scannedUrl.searchParams.get('token') || null;
+
+      const existingGuestAttendance = logs.find(log =>
+        log.activityId === selectedActivity.id &&
+        log.participantType === 'EXTERNAL' &&
+        ((guestId && log.guestId === guestId) ||
+          (String(log.agency || '').trim().toLowerCase() === String(agency || '').trim().toLowerCase() &&
+            String(log.invitedName || '').trim().toLowerCase() === String(invitedName || '').trim().toLowerCase()))
+      );
+
+      if (existingGuestAttendance) {
+        if (existingGuestAttendance.checkOutAt) {
+          setScanError(`${invitedName} dari ${agency} sudah melakukan Check-out pada agenda ini.`);
+          recoverScan();
+          return;
+        }
+
+        if (!window.confirm(`Konfirmasi Check-out ${invitedName} dari ${agency}?`)) {
+          recoverScan();
+          return;
+        }
+
+        const checkoutResult = await checkoutAttendance({
+          activityId: selectedActivity.id,
+          participantType: 'EXTERNAL',
+          guestId,
+          agency,
+          invitedName,
+          method: 'QR_WEBCAM',
+          operatorName: 'Petugas Laptop Webcam Scanner'
+        });
+
+        if (checkoutResult.success) setScanResult({ ...checkoutResult, guest: true, member: { name: invitedName } });
+        else { setScanError(checkoutResult.message || 'Gagal menyimpan Check-out OPD.'); recoverScan(); }
+        setIsProcessing(false);
+        return;
+      }
+
       const result = await recordGuestAttendance({
         activityId: selectedActivity.id,
-        guestId: scannedUrl.searchParams.get('guestId') || null,
-        agency: scannedUrl.searchParams.get('agency') || 'OPD/Instansi',
-        invitedName: scannedUrl.searchParams.get('name') || 'Peserta OPD',
-        participantCategory: scannedUrl.searchParams.get('category') || 'OPD/INSTANSI',
-        invitationToken: scannedUrl.searchParams.get('token') || null,
+        guestId,
+        agency,
+        invitedName,
+        participantCategory,
+        invitationToken,
         operatorName: 'Petugas Laptop Webcam Scanner'
       });
       if (result.success) setScanResult({ ...result, guest: true });
-      else { setScanError(result.message || 'Gagal menyimpan absensi OPD.'); hasScanned.current = false; }
-      setIsProcessing(false);
+      else { setScanError(result.message || 'Gagal menyimpan absensi OPD.'); recoverScan(); }
+      if (result.success) setIsProcessing(false);
       return;
     }
 
@@ -79,7 +154,8 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     try {
       if (cleanText.includes('http://') || cleanText.includes('https://') || cleanText.includes('?')) {
         const urlObj = new URL(cleanText.startsWith('http') ? cleanText : window.location.origin + cleanText);
-        const urlToken = urlObj.searchParams.get('token') || urlObj.searchParams.get('member') || urlObj.searchParams.get('id');
+        invitationToken = urlObj.searchParams.get('token') || null;
+        const urlToken = invitationToken || urlObj.searchParams.get('member') || urlObj.searchParams.get('id');
         if (urlToken) extractedToken = urlToken;
       }
     } catch (e) {}
@@ -121,15 +197,13 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
 
     if (!member) {
       setScanError(`QR Code "${cleanText}" tidak cocok dengan data anggota manapun di sistem. Pastikan menggunakan Kartu Digital resmi.`);
-      setIsProcessing(false);
-      hasScanned.current = false;
+      recoverScan();
       return;
     }
 
     if (!selectedActivity) {
       setScanError('Tidak ada agenda kegiatan yang dipilih. Pilih agenda kegiatan terlebih dahulu.');
-      setIsProcessing(false);
-      hasScanned.current = false;
+      recoverScan();
       return;
     }
 
@@ -137,18 +211,16 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     if (existingAttendance) {
       if (existingAttendance.checkOutAt) {
         setScanError(`${member.name} sudah melakukan Check-out pada agenda ini.`);
-        setIsProcessing(false);
-        hasScanned.current = false;
+        recoverScan();
         return;
       }
       if (!window.confirm(`Konfirmasi Check-out ${member.name}?`)) {
-        setIsProcessing(false);
-        hasScanned.current = false;
+        recoverScan();
         return;
       }
       const checkoutResult = await checkoutAttendance({ activityId: selectedActivity.id, memberId: member.id, method: 'QR_WEBCAM', operatorName: 'Petugas Laptop Webcam Scanner' });
       if (checkoutResult.success) setScanResult({ ...checkoutResult, member, isCheckout: true });
-      else { setScanError(checkoutResult.message || 'Gagal menyimpan Check-out.'); hasScanned.current = false; }
+      else { setScanError(checkoutResult.message || 'Gagal menyimpan Check-out.'); recoverScan(); }
       setIsProcessing(false);
       return;
     }
@@ -159,7 +231,8 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       memberId: member.id,
       method: 'QR_WEBCAM',
       operatorName: 'Petugas Laptop Webcam Scanner',
-      ignoreDeviceLock: true
+      ignoreDeviceLock: true,
+      invitationToken
     });
 
     if (result.success) {
@@ -170,10 +243,10 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       } catch (e) {}
     } else {
       setScanError(result.message || 'Gagal menyimpan absensi ke database.');
-      hasScanned.current = false;
+      recoverScan();
     }
     setIsProcessing(false);
-  }, [isProcessing, getMemberByQR, getMemberById, members, logs, recordAttendance, checkoutAttendance, selectedActivity, stopScanner]);
+  }, [isProcessing, getMemberByQR, getMemberById, members, logs, recordAttendance, checkoutAttendance, selectedActivity, stopScanner, restartScanner]);
 
   // Inisialisasi kamera scanner
   useEffect(() => {
@@ -193,7 +266,10 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
         scannerRef.current = html5QrCode;
 
         // Ambil daftar kamera yang tersedia
-        const cameras = await Html5Qrcode.getCameras();
+        const cameras = camerasRef.current.length > 0
+          ? camerasRef.current
+          : await Html5Qrcode.getCameras();
+        camerasRef.current = cameras;
         if (!cameras || cameras.length === 0) {
           setCameraError('Tidak ada kamera yang terdeteksi. Pastikan kamera laptop/PC terhubung.');
           return;
@@ -247,33 +323,38 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
   }, [isOpen, selectedActivityId]);
 
   // Reset dan scan ulang
-  const handleRescan = () => {
+  const handleRescan = async () => {
     setScanResult(null);
     setScanError('');
     setCameraError('');
     hasScanned.current = false;
     setIsProcessing(false);
+    setScannerReady(false);
 
-    // Re-start kamera
-    setTimeout(async () => {
-      try {
-        const html5QrCode = new Html5Qrcode(scannerDivId);
-        scannerRef.current = html5QrCode;
-        const cameras = await Html5Qrcode.getCameras();
-        if (cameras?.length > 0) {
-          const backCamera = cameras.find(c => c.label.toLowerCase().includes('back'));
-          await html5QrCode.start(
-            backCamera?.id || cameras[0].id,
-            { fps: 15, qrbox: { width: 250, height: 250 } },
-            (decodedText) => handleQRScanned(decodedText),
-            () => {}
-          );
-          setScannerReady(true);
-        }
-      } catch (err) {
-        setCameraError(`Gagal restart kamera: ${err?.message}`);
+    try {
+      await stopScanner();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const html5QrCode = new Html5Qrcode(scannerDivId);
+      scannerRef.current = html5QrCode;
+      const cameras = camerasRef.current.length > 0
+        ? camerasRef.current
+        : await Html5Qrcode.getCameras();
+      camerasRef.current = cameras;
+      if (!cameras?.length) {
+        setCameraError('Tidak ada kamera yang terdeteksi.');
+        return;
       }
-    }, 200);
+      const backCamera = cameras.find(c => /back|rear|environment/i.test(c.label || ''));
+      await html5QrCode.start(
+        backCamera?.id || cameras[0].id,
+        { fps: 20, qrbox: { width: 250, height: 250 } },
+        (decodedText) => handleQRScanned(decodedText),
+        () => {}
+      );
+      setScannerReady(true);
+    } catch (err) {
+      setCameraError(`Gagal restart kamera: ${err?.message || err}`);
+    }
   };
 
   if (!isOpen) return null;
@@ -414,6 +495,12 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
               </span>
               <h4 className="text-xs text-slate-400">Verifikasi Visual Foto Identitas Anggota DPRD</h4>
             </div>
+
+            {scanResult.warning && (
+              <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-700/60 text-amber-200 text-xs text-left">
+                <span className="font-bold">Peringatan sinkronisasi:</span> {scanResult.warning}
+              </div>
+            )}
 
             {/* Member Card */}
             <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 text-left flex items-start space-x-4">

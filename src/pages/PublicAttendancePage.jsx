@@ -178,21 +178,30 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
     m.fraksi?.toLowerCase().includes(memberSearch.toLowerCase())
   );
 
-  // Cek apakah member sudah absen di agenda ini
+  // Cek apakah peserta sudah absen di agenda ini
   const existingAttendance = selectedMemberId && selectedActivity
     ? logs.find(l => l.memberId === selectedMemberId && l.activityId === selectedActivity.id && l.participantType !== 'EXTERNAL')
     : null;
-  const alreadyCheckedIn = Boolean(existingAttendance);
-  const alreadyCheckedOut = Boolean(existingAttendance?.checkOutAt);
+  const existingGuestAttendance = selectedActivity && participantType === 'EXTERNAL' && agency.trim() && invitedName.trim()
+    ? logs.find(log =>
+        log.activityId === selectedActivity.id &&
+        log.participantType === 'EXTERNAL' &&
+        ((invitationGuestId && log.guestId === invitationGuestId) ||
+          (String(log.agency || '').trim().toLowerCase() === agency.trim().toLowerCase() &&
+            String(log.invitedName || '').trim().toLowerCase() === invitedName.trim().toLowerCase()))
+      )
+    : null;
+  const alreadyCheckedIn = participantType === 'EXTERNAL' ? Boolean(existingGuestAttendance) : Boolean(existingAttendance);
+  const alreadyCheckedOut = participantType === 'EXTERNAL' ? Boolean(existingGuestAttendance?.checkOutAt) : Boolean(existingAttendance?.checkOutAt);
 
   // ────── Submit ──────
   const handleCheckIn = async (e) => {
     e.preventDefault();
     if (!selectedActivity) return;
 
-    if (participantType === 'INTERNAL') {
+    if (participantType === 'INTERNAL' && selectedActivity.gpsRequired) {
       if (!userLocation) {
-        setSubmitError('Akses GPS belum tersedia. Izinkan lokasi perangkat agar absensi dapat diverifikasi di sekitar ruang rapat atau sekretariat DPRD Kabupaten Cirebon.');
+        setSubmitError(geoError || 'Lokasi belum diizinkan. Izinkan GPS atau tekan Refresh GPS sebelum melakukan absensi.');
         return;
       }
       if (!radiusCheck.isWithin) {
@@ -205,21 +214,32 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
       }
     }
 
-    if (participantType === 'INTERNAL' && alreadyCheckedIn) {
+    if (alreadyCheckedIn) {
       if (alreadyCheckedOut) {
-        setSubmitError('Absensi anggota ini sudah selesai. Check-out hanya dapat dilakukan satu kali.');
+        setSubmitError('Absensi peserta ini sudah selesai. Check-out hanya dapat dilakukan satu kali.');
         return;
       }
       if (!window.confirm('Konfirmasi Check-out sekarang? Waktu meninggalkan kegiatan akan dicatat otomatis.')) return;
       setIsSubmitting(true);
-      const checkoutResult = await checkoutAttendance({
-        activityId: selectedActivity.id,
-        memberId: selectedMemberId,
-        method: 'QR_AGENDA',
-        operatorName: 'Mandiri via QR Agenda'
-      });
+      const checkoutResult = participantType === 'EXTERNAL'
+        ? await checkoutAttendance({
+            activityId: selectedActivity.id,
+            participantType: 'EXTERNAL',
+            guestId: invitationGuestId || existingGuestAttendance?.guestId || null,
+            agency: agency.trim(),
+            invitedName: invitedName.trim(),
+            method: 'QR_AGENDA',
+            operatorName: 'Mandiri via QR Agenda'
+          })
+        : await checkoutAttendance({
+            activityId: selectedActivity.id,
+            memberId: selectedMemberId,
+            participantType: 'INTERNAL',
+            method: 'QR_AGENDA',
+            operatorName: 'Mandiri via QR Agenda'
+          });
       setIsSubmitting(false);
-      if (checkoutResult.success) setSubmitSuccess(checkoutResult.log);
+      if (checkoutResult.success) setSubmitSuccess({ ...checkoutResult.log, warning: checkoutResult.warning || null });
       else setSubmitError(checkoutResult.message || 'Gagal menyimpan Check-out.');
       return;
     }
@@ -236,9 +256,9 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
     setIsSubmitting(true);
     setSubmitError('');
 
-    const currentLat = Number(userLocation.lat);
-    const currentLng = Number(userLocation.lng);
-    const currentDist = radiusCheck ? Math.round(radiusCheck.distance) : 0;
+    const currentLat = userLocation ? Number(userLocation.lat) : null;
+    const currentLng = userLocation ? Number(userLocation.lng) : null;
+    const currentDist = radiusCheck?.distance == null ? null : Math.round(radiusCheck.distance);
 
     let res;
 
@@ -295,7 +315,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
     setIsSubmitting(false);
 
     if (res?.success) {
-      setSubmitSuccess(res.log);
+      setSubmitSuccess({ ...res.log, warning: res.warning || null });
       // Confetti tanpa dependency (native canvas)
       try {
         const confetti = (await import('canvas-confetti')).default;
@@ -727,14 +747,16 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
               {/* ── GPS Radius Box ── */}
               <div className="p-3.5 bg-slate-800/40 border border-slate-700/60 rounded-2xl flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <MapPin className={`w-4 h-4 shrink-0 ${radiusCheck.isWithin ? 'text-emerald-400' : 'text-amber-400'}`} />
+                  <MapPin className={`w-4 h-4 shrink-0 ${!selectedActivity?.gpsRequired ? 'text-slate-400' : radiusCheck.isWithin ? 'text-emerald-400' : 'text-amber-400'}`} />
                   <div>
                     <span className="text-slate-400 block text-[11px]">Jarak ke Lokasi Sidang</span>
                     <div className="flex items-center gap-2">
-                      <span className={`font-bold text-xs ${radiusCheck.isWithin ? 'text-white' : 'text-amber-300'}`}>
-                        {formatDistance(radiusCheck.distance)}
+                      <span className={`font-bold text-xs ${!selectedActivity?.gpsRequired ? 'text-slate-300' : radiusCheck.isWithin ? 'text-white' : 'text-amber-300'}`}>
+                        {!selectedActivity?.gpsRequired ? 'GPS tidak diwajibkan' : radiusCheck.distance == null ? 'GPS belum tersedia' : formatDistance(radiusCheck.distance)}
                       </span>
-                      {radiusCheck.isWithin ? (
+                      {!selectedActivity?.gpsRequired ? (
+                        <span className="text-[9px] text-slate-400 font-bold">✓ Opsional</span>
+                      ) : radiusCheck.isWithin ? (
                         <span className="text-[9px] text-emerald-400 font-bold">✓ Dalam Radius</span>
                       ) : (
                         <span className="text-[9px] text-amber-400 font-bold">⚠ Di Luar Radius</span>
@@ -784,7 +806,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
               {/* ── Submit Button ── */}
               <button
                 type="submit"
-                disabled={isSubmitting || timeCalc.isNotStarted || (participantType === 'INTERNAL' && alreadyCheckedOut)}
+                disabled={isSubmitting || timeCalc.isNotStarted || alreadyCheckedOut}
                 className={`w-full py-4 ${alreadyCheckedIn ? 'bg-amber-600 hover:bg-amber-500' : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500'} disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed text-white font-black rounded-2xl text-sm shadow-xl transition flex items-center justify-center gap-2`}
               >
                 {isSubmitting ? (

@@ -55,7 +55,30 @@ export function getDisciplineGrade(percentage, thresholds = {}) {
 }
 
 export function getStatusBadge(status) {
-  switch (status?.toLowerCase()) {
+  const original = String(status || '').trim();
+  const normalized = original.toLowerCase();
+
+  if (normalized === 'on time' || normalized === 'on time.') {
+    return { label: 'On Time', bg: 'bg-emerald-500/10 text-emerald-600 border-emerald-300 dark:text-emerald-400 dark:border-emerald-800' };
+  }
+
+  if (normalized.includes('on time') && normalized.includes('dalam toleransi')) {
+    return { label: 'On Time – Dalam Toleransi', bg: 'bg-emerald-500/10 text-emerald-600 border-emerald-300 dark:text-emerald-400 dark:border-emerald-800' };
+  }
+
+  if (normalized.includes('terlambat')) {
+    return { label: original, bg: 'bg-amber-500/10 text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-800' };
+  }
+
+  if (normalized.includes('pulang lebih awal')) {
+    return { label: original, bg: 'bg-rose-500/10 text-rose-600 border-rose-300 dark:text-rose-400 dark:border-rose-800' };
+  }
+
+  if (normalized === 'selesai/normal') {
+    return { label: 'Selesai/Normal', bg: 'bg-emerald-500/10 text-emerald-600 border-emerald-300 dark:text-emerald-400 dark:border-emerald-800' };
+  }
+
+  switch (normalized) {
     case 'hadir tepat waktu':
     case 'hadir':
       return { label: 'Hadir Tepat Waktu', bg: 'bg-emerald-500/10 text-emerald-600 border-emerald-300 dark:text-emerald-400 dark:border-emerald-800' };
@@ -109,15 +132,14 @@ export function getMethodBadge(method) {
  * @returns {{ status: string, isExpired: boolean, isLate: boolean, minutesDiff: number, message: string }}
  */
 export function calculateAttendanceStatus(activity, scanDate = new Date()) {
-  if (!activity) return { status: 'Hadir', isExpired: false, isLate: false, minutesDiff: 0, message: 'Kegiatan valid' };
+  if (!activity) return { status: 'On Time', isExpired: false, isLate: false, minutesDiff: 0, message: 'Kegiatan valid' };
 
   try {
-    const actDateStr = activity.date; // YYYY-MM-DD
+    const actDateStr = activity.date;
     const [startH, startM] = (activity.startTime || '08:00').split(':').map(Number);
     const [endH, endM] = (activity.endTime || '16:00').split(':').map(Number);
     const tolerance = Number(activity.toleranceMinutes ?? 30);
 
-    // Dapatkan tanggal dan jam di zona waktu Indonesia Barat (WIB / UTC+7)
     const now = new Date(scanDate);
     const nowWibStr = now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' });
     const nowWib = new Date(nowWibStr);
@@ -127,7 +149,6 @@ export function calculateAttendanceStatus(activity, scanDate = new Date()) {
     const toleranceDateTime = new Date(startDateTime.getTime() + tolerance * 60 * 1000);
     const endDateTime = new Date(year, month - 1, day, endH, endM, 0);
 
-    // Cek apakah agenda belum dimulai (QR Belum Aktif)
     if (nowWib < startDateTime) {
       const waitMins = Math.round((startDateTime - nowWib) / 60000);
       return {
@@ -140,41 +161,44 @@ export function calculateAttendanceStatus(activity, scanDate = new Date()) {
       };
     }
 
-    // Cek apakah agenda sudah berakhir (QR Expired)
-    if (nowWib > endDateTime) {
+    if (nowWib <= toleranceDateTime) {
+      const onTimeMinutes = Math.max(0, Math.round((nowWib - startDateTime) / 60000));
+      const status = onTimeMinutes === 0 ? 'On Time' : 'On Time – Dalam Toleransi';
       return {
-        status: 'Alpha',
+        status,
         isNotStarted: false,
-        isExpired: true,
-        isLate: true,
-        minutesDiff: Math.round((nowWib - endDateTime) / 60000),
-        message: `QR Code kegiatan sudah kedaluwarsa (Agenda telah berakhir pukul ${activity.endTime || '16:00'} WIB).`
+        isExpired: false,
+        isLate: false,
+        isLateWithinTolerance: onTimeMinutes > 0,
+        minutesDiff: onTimeMinutes,
+        message: onTimeMinutes === 0
+          ? 'On Time.'
+          : `On Time – Dalam Toleransi (${onTimeMinutes} menit setelah jadwal).`
       };
     }
 
-    // Cek apakah scan dilakukan melewati batas toleransi
-    if (nowWib > toleranceDateTime) {
-      const lateMins = Math.round((nowWib - startDateTime) / 60000);
+    if (nowWib <= endDateTime) {
+      const lateMins = Math.max(1, Math.round((nowWib - startDateTime) / 60000));
       return {
-        status: 'Terlambat',
+        status: `Terlambat ${lateMins} Menit`,
         isNotStarted: false,
         isExpired: false,
         isLate: true,
         minutesDiff: lateMins,
-        message: `Absensi tercatat Terlambat (${lateMins} menit setelah jadwal dimulai).`
+        message: `Terlambat ${lateMins} Menit dari jadwal mulai.`
       };
     }
 
     return {
-      status: 'Hadir',
+      status: 'Terlambat',
       isNotStarted: false,
-      isExpired: false,
-      isLate: false,
-      minutesDiff: 0,
-      message: 'Hadir tepat waktu.'
+      isExpired: true,
+      isLate: true,
+      minutesDiff: Math.max(1, Math.round((nowWib - endDateTime) / 60000)),
+      message: `Absensi sudah ditutup karena agenda telah berakhir pukul ${activity.endTime || '16:00'} WIB.`
     };
   } catch (err) {
-    return { status: 'Hadir', isNotStarted: false, isExpired: false, isLate: false, minutesDiff: 0, message: 'Status default' };
+    return { status: 'On Time', isNotStarted: false, isExpired: false, isLate: false, minutesDiff: 0, message: 'Status default' };
   }
 }
 
@@ -197,6 +221,25 @@ export function formatLiveTimestamp(timestamp, includeSeconds = false) {
     }).replace('.', ':') + ' WIB';
   } catch (e) {
     return String(timestamp);
+  }
+}
+
+export function formatCheckInWithStatus(log) {
+  if (!log) return '-';
+  const timestamp = log.checkInAt || log.timestamp;
+  if (!timestamp) return log.status || '-';
+
+  try {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return `${timestamp} - ${log.status || 'Hadir'}`;
+    const time = date.toLocaleTimeString('id-ID', {
+      timeZone: 'Asia/Jakarta',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).replace(':', '.');
+    return `${time} WIB - ${log.status || 'Hadir'}`;
+  } catch (error) {
+    return `${timestamp} - ${log.status || 'Hadir'}`;
   }
 }
 

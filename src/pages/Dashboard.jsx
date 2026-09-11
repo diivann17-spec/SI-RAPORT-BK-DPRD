@@ -435,7 +435,7 @@ export default function Dashboard({ onNavigate }) {
                           <span className="text-[11px] font-mono text-slate-400">
                             {formatLiveTimestamp(log.timestamp)}
                           </span>
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${log.status === 'Terlambat' || log.status === 'LATE' ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${String(log.status || '').toLowerCase().includes('terlambat') ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
                             {log.status || 'Hadir'}
                           </span>
                         </div>

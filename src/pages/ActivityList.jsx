@@ -38,6 +38,7 @@ const EMPTY_FORM = {
   targetLat: -6.760700,
   targetLng: 108.482200,
   radiusMeters: 150,
+  gpsRequired: false,
   description: '',
   status: 'ACTIVE',
   participantMemberIds: [],
@@ -481,7 +482,7 @@ export default function ActivityList() {
                                 <span className="text-[10px] font-mono text-slate-400">
                                   {formatLiveTimestamp(log.timestamp)}
                                 </span>
-                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${log.status === 'Terlambat' || log.status === 'LATE' ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${String(log.status || '').toLowerCase().includes('terlambat') ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
                                   {log.status || 'Hadir'}
                                 </span>
                               </div>
@@ -739,6 +740,19 @@ export default function ActivityList() {
                   </div>
                 </div>
               </div>
+
+              <label className="flex items-center gap-2 rounded-xl border border-cyan-800/60 bg-cyan-950/30 p-3 text-xs text-cyan-100">
+                <input
+                  type="checkbox"
+                  checked={Boolean(formData.gpsRequired)}
+                  onChange={event => handleChange('gpsRequired', event.target.checked)}
+                  className="accent-cyan-500"
+                />
+                <span>
+                  <strong>Wajibkan GPS untuk absensi mandiri</strong>
+                  <span className="block text-[10px] text-cyan-300/70">Jika tidak dicentang, QR tetap dapat digunakan tanpa lokasi perangkat.</span>
+                </span>
+              </label>
 
               {/* Master Ruangan */}
               <div>

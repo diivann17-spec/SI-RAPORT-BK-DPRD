@@ -21,6 +21,7 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
   
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [syncWarning, setSyncWarning] = useState('');
   const [success, setSuccess] = useState(false);
 
   React.useEffect(() => {
@@ -28,6 +29,7 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
       const active = activities.find(a => a.id === propActivityId) || activities.find(a => a.status === 'ACTIVE') || activities[0];
       setActivityId(propActivityId || (active?.id || ''));
       setError('');
+      setSyncWarning('');
       setSuccess(false);
       setIsLoading(false);
       setAgency('');
@@ -83,6 +85,7 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
     setIsLoading(false);
 
     if (res.success) {
+      setSyncWarning(res.warning || '');
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);
@@ -264,7 +267,10 @@ export default function GuestAttendanceModal({ isOpen, onClose, activityId: prop
           {success && (
             <div className="p-3 bg-emerald-950/60 border border-emerald-800 rounded-xl text-emerald-300 flex items-center gap-2">
               <CheckCircle className="w-4 h-4 shrink-0" />
-              <span>Presensi Tamu Berhasil Dicatat ke LPJ Kegiatan!</span>
+              <span>
+                Presensi Tamu Berhasil Dicatat ke Laporan Peserta Eksternal.
+                {syncWarning ? <span className="block text-amber-300 mt-1">Sinkronisasi: {syncWarning}</span> : <span className="block text-emerald-200 mt-1">Tersimpan & tersinkronisasi.</span>}
+              </span>
             </div>
           )}
 

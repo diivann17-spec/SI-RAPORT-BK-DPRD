@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
-import { getStatusBadge } from '../utils/raportUtils';
+import { getStatusBadge, formatCheckInWithStatus } from '../utils/raportUtils';
 import dprdLogo from '../logo.png';
 import {
   FileSpreadsheet, X, Printer, Download, Users,
@@ -17,10 +17,24 @@ function formatDuration(minutes) {
 }
 
 export default function LPJViewerModal({ isOpen, onClose, activityId }) {
-  const { getLPJData, updateLPJSummary, reportSigners } = useAttendance();
+  const { getLPJData, updateLPJSummary, reportSigners, members } = useAttendance();
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesInput, setNotesInput] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const printRootRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const handleAfterPrint = () => {
+      document.body.classList.remove('lpj-printing');
+      document.documentElement.classList.remove('lpj-printing');
+    };
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('afterprint', handleAfterPrint);
+      document.body.classList.remove('lpj-printing');
+      document.documentElement.classList.remove('lpj-printing');
+    };
+  }, []);
 
   const lpj = getLPJData(activityId);
 
@@ -125,8 +139,81 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
     await persistDocumentationPhotos(filtered);
   };
 
+  const printLpj = () => {
+    const source = printRootRef.current;
+    if (!source) return;
+
+    const printWindow = window.open('', '_blank', 'width=1100,height=800');
+    if (!printWindow) return;
+
+    const stylesheets = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+      .map(link => `<link rel="stylesheet" href="${link.href}">`)
+      .join('');
+    const clonedContent = source.cloneNode(true);
+    clonedContent.querySelectorAll('.no-print').forEach(element => element.remove());
+
+    printWindow.document.open();
+    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>LPJ - ${activity.title}</title>${stylesheets}<style>
+      @page { size: 215mm 330mm; margin: 12mm; }
+      html, body { margin: 0; padding: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.35; }
+      .lpj-print-root { position: static !important; display: block !important; width: 100% !important; min-height: 0 !important; background: #fff !important; }
+      .lpj-print-root > div { position: static !important; display: block !important; width: 100% !important; max-width: none !important; max-height: none !important; margin: 0 !important; padding: 0 !important; background: #fff !important; color: #000 !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; overflow: visible !important; }
+      .lpj-print-root .overflow-y-auto { overflow: visible !important; max-height: none !important; height: auto !important; }
+      .lpj-print-root .rounded-3xl, .lpj-print-root .rounded-2xl, .lpj-print-root .rounded-xl { border-radius: 0 !important; }
+      .lpj-print-root .shadow-2xl, .lpj-print-root .shadow-xl { box-shadow: none !important; }
+      .lpj-print-root * { color: #000 !important; text-shadow: none !important; }
+      .lpj-print-root h1, .lpj-print-root h2, .lpj-print-root h3, .lpj-print-root h4 { color: #000 !important; line-height: 1.2 !important; }
+      .lpj-print-root table { width: 100% !important; border-collapse: collapse !important; break-inside: auto; margin: 8px 0 14px; }
+      .lpj-print-root th { background: #e5e7eb !important; border: 1px solid #111 !important; color: #000 !important; font-weight: 700 !important; padding: 5px 6px !important; text-align: left; }
+      .lpj-print-root td { border: 1px solid #444 !important; color: #000 !important; padding: 5px 6px !important; vertical-align: top; }
+      .lpj-print-root tr { break-inside: avoid; }
+      .lpj-print-root img { break-inside: avoid; max-width: 100%; }
+      .lpj-print-root .space-y-8 > * + * { margin-top: 18px !important; }
+      .lpj-print-root .space-y-3 > * + * { margin-top: 7px !important; }
+      .lpj-print-root .grid { gap: 10px !important; }
+      .lpj-print-root .border-b-\\[3px\\] { border-bottom: 2px solid #111 !important; }
+      .lpj-print-root .lpj-external-section { break-before: page; page-break-before: always; }
+      .lpj-print-root .pt-6 { padding-top: 18px !important; }
+      .lpj-print-root .h-16 { height: 56px !important; }
+      .hidden { display: none !important; }
+      .print\\:block { display: block !important; }
+      .print\\:flex { display: flex !important; }
+      .print\\:hidden { display: none !important; }
+    </style></head><body>${clonedContent.outerHTML}</body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 800);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 backdrop-blur-sm">
+    <>
+      <style>{`@page { size: 215mm 330mm; margin: 12mm; }
+      @media print {
+        html, body { background: white !important; color: black !important; }
+        html.lpj-printing body * { visibility: hidden !important; }
+        html.lpj-printing .lpj-print-root,
+        html.lpj-printing .lpj-print-root * { visibility: visible !important; }
+        html.lpj-printing .lpj-print-root { position: static !important; inset: auto !important; display: block !important; width: 100% !important; min-height: 0 !important; background: white !important; }
+        html.lpj-printing .lpj-print-root > div { display: block !important; width: 100% !important; max-width: none !important; max-height: none !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; background: white !important; color: black !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; overflow: visible !important; }
+        html.lpj-printing .lpj-print-root .no-print { display: none !important; }
+        html.lpj-printing .lpj-print-root,
+        html.lpj-printing .lpj-print-root > div,
+        html.lpj-printing .lpj-print-root .overflow-y-auto { overflow: visible !important; max-height: none !important; height: auto !important; }
+        html.lpj-printing .lpj-print-root .rounded-3xl,
+        html.lpj-printing .lpj-print-root .rounded-2xl,
+        html.lpj-printing .lpj-print-root .rounded-xl { border-radius: 0 !important; }
+        html.lpj-printing .lpj-print-root .shadow-2xl,
+        html.lpj-printing .lpj-print-root .shadow-xl { box-shadow: none !important; }
+        html.lpj-printing .lpj-print-root .space-y-8 > :not([hidden]) ~ :not([hidden]) { margin-top: 16px !important; }
+        html.lpj-printing .lpj-print-root table { break-inside: auto; }
+        html.lpj-printing .lpj-print-root tr { break-inside: avoid; }
+        html.lpj-printing .lpj-print-root img { break-inside: avoid; }
+        html.lpj-printing .lpj-external-section { break-before: page; }
+      }`}</style>
+    <div ref={printRootRef} className="lpj-print-root fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 backdrop-blur-sm">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full shadow-2xl text-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
         
         {/* Top Bar Action (No Print) */}
@@ -150,7 +237,7 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
 
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => window.print()}
+              onClick={printLpj}
               className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow transition"
             >
               <Printer className="w-4 h-4" />
@@ -168,22 +255,27 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
         {/* LPJ Printable Paper Layout */}
         <div className="p-6 sm:p-10 overflow-y-auto space-y-8 bg-slate-900 text-slate-100 print:bg-white print:text-black print:p-0">
           
-          {/* KOP Surat DPRD (Official Header) */}
-          <div className="border-b-2 border-slate-700 print:border-black pb-4 flex items-center justify-between gap-4">
-            <img src={dprdLogo} alt="Logo DPRD" className="w-16 h-16 object-contain shrink-0" />
-            <div className="text-center flex-1">
-              <h3 className="text-base font-black uppercase tracking-wider text-slate-200 print:text-black">
-                DEWAN PERWAKILAN RAKYAT DAERAH
+          {/* KOP Surat DPRD sesuai format resmi Kabupaten Cirebon */}
+          <div className="border-b-[3px] border-slate-700 print:border-black pb-2 flex items-center gap-4">
+            <img src={dprdLogo} alt="Lambang Kabupaten Cirebon" className="w-[76px] h-[76px] object-contain shrink-0" />
+            <div className="text-center flex-1 leading-tight">
+              <h3 className="text-[15px] sm:text-lg font-black uppercase tracking-wide text-slate-200 print:text-black">
+                PEMERINTAH KABUPATEN CIREBON
               </h3>
-              <h4 className="text-sm font-bold text-emerald-400 print:text-black uppercase">
-                SEKRETARIAT & BADAN KEHORMATAN (BK) DPRD
+              <h4 className="text-[14px] sm:text-base font-black uppercase text-emerald-400 print:text-black">
+                SEKRETARIAT DEWAN PERWAKILAN RAKYAT DAERAH
               </h4>
-              <p className="text-[11px] text-slate-400 print:text-gray-600">
-                Gedung DPRD Kabupaten Cirebon • Jl. Sunan Drajat No. 1, Sumber • Jawa Barat
+              <p className="text-[10px] sm:text-[11px] font-semibold text-slate-400 print:text-gray-700">
+                Jalan Sunan Drajat No. 1, Sumber, Kabupaten Cirebon, Jawa Barat 45611
+              </p>
+              <p className="text-[9px] sm:text-[10px] text-slate-500 print:text-gray-600">
+                Telepon (0231) 321197 • Email: sekretariat.dprd@cirebonkab.go.id
               </p>
             </div>
-            <div className="w-16 hidden sm:block" />
+            <div className="w-[76px] shrink-0" aria-hidden="true" />
           </div>
+
+          <div>
 
           {/* Title of LPJ */}
           <div className="text-center space-y-1">
@@ -308,7 +400,7 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                             <span className="block text-[10px] text-slate-400 print:text-gray-600 font-normal font-mono">{log.memberId}</span>
                           </td>
                           <td className="p-2.5 font-mono text-[11px]">
-                            {log.timestamp ? new Date(log.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'} WIB
+                            {formatCheckInWithStatus(log)}
                           </td>
                           <td className="p-2.5 font-mono text-[11px]">
                             {log.checkOutAt ? `${new Date(log.checkOutAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : <span className="text-amber-400 print:text-gray-600">Belum</span>}
@@ -340,7 +432,7 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
           </div>
 
           {/* 4. Tabel Daftar Hadir Tamu Eksternal / OPD / Delegasi */}
-          <div className="space-y-3">
+          <div className="lpj-external-section space-y-3">
             <h4 className="text-xs font-black uppercase tracking-wider text-cyan-400 print:text-black flex items-center justify-between border-b border-slate-800 print:border-gray-300 pb-1">
               <span>IV. DAFTAR PRESENSI TAMU EKSTERNAL, DINAS & OPD</span>
               <span className="text-[10px] text-slate-400 print:text-gray-600">Dokumentasi LPJ (Non-Raport)</span>
@@ -396,7 +488,7 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
                           )}
                         </td>
                         <td className="p-2.5 font-mono text-[11px]">
-                          {gst.timestamp ? new Date(gst.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'} WIB
+                          {formatCheckInWithStatus(gst)}
                         </td>
                         <td className="p-2.5 font-mono text-[11px]">
                           {gst.checkOutAt ? `${new Date(gst.checkOutAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : '-'}
@@ -545,9 +637,56 @@ export default function LPJViewerModal({ isOpen, onClose, activityId }) {
             </div>)}
           </div>
 
+          </div>
+
+          <div className="hidden">
+            <div className="text-center mb-4 leading-tight">
+              <h2 className="text-base font-black uppercase underline">DAFTAR HADIR</h2>
+              <p className="text-xs font-bold">{activity.title}</p>
+              <p className="text-xs font-bold">{activity.date} • {activity.startTime} - {activity.endTime} WIB</p>
+            </div>
+            <table className="w-full border-collapse border border-black text-[10px]">
+              <thead>
+                <tr>
+                  <th className="border border-black p-1 text-center w-8">No</th>
+                  <th className="border border-black p-1 text-left">Nama</th>
+                  <th className="border border-black p-1 text-left">Jabatan</th>
+                  <th className="border border-black p-1 text-left">Instansi</th>
+                  <th className="border border-black p-1 text-center">Check-in</th>
+                  <th className="border border-black p-1 text-center">Check-out</th>
+                  <th className="border border-black p-1 text-left">Keterangan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...internalLogs, ...externalLogs].map((log, index) => {
+                  const isExternal = log.participantType === 'EXTERNAL';
+                  const member = members.find(item => item.id === log.memberId);
+                  return (
+                    <tr key={log.id} className="h-8">
+                      <td className="border border-black p-1 text-center">{index + 1}</td>
+                      <td className="border border-black p-1">{isExternal ? (log.isRepresented ? log.representativeName : log.guestName || log.invitedName) : log.memberName}</td>
+                      <td className="border border-black p-1">{isExternal ? log.representativePosition || log.position || '-' : member?.jabatan || 'Anggota DPRD'}</td>
+                      <td className="border border-black p-1">{isExternal ? log.agency || log.guestAgency || '-' : member?.fraksi || log.memberFraksi || 'DPRD Kabupaten Cirebon'}</td>
+                      <td className="border border-black p-1 text-center">{formatCheckInWithStatus(log).split(' - ')[0]}</td>
+                      <td className="border border-black p-1 text-center">{log.checkOutAt ? `${new Date(log.checkOutAt).toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }).replace(':', '.')} WIB` : '-'}</td>
+                      <td className="border border-black p-1">{[log.status, log.checkoutStatus, log.note].filter(Boolean).join(' | ') || '-'}</td>
+                    </tr>
+                  );
+                })}
+                {Array.from({ length: Math.max(0, 15 - internalLogs.length - externalLogs.length) }, (_, index) => (
+                  <tr key={`empty-${index}`} className="h-8">
+                    <td className="border border-black p-1 text-center">{internalLogs.length + externalLogs.length + index + 1}</td>
+                    <td className="border border-black p-1"></td><td className="border border-black p-1"></td><td className="border border-black p-1"></td><td className="border border-black p-1"></td><td className="border border-black p-1"></td><td className="border border-black p-1"></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
         </div>
 
       </div>
     </div>
+    </>
   );
 }

@@ -25,6 +25,7 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
   const [note, setNote] = useState('');
   const [operatorName, setOperatorName] = useState('Petugas Sekretariat DPRD');
   const [error, setError] = useState('');
+  const [syncWarning, setSyncWarning] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
@@ -37,6 +38,7 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
       const firstParticipantId = members.find(member => activeParticipantIds.includes(member.id))?.id || '';
       setSelectedMemberId(propMemberId && activeParticipantIds.includes(propMemberId) ? propMemberId : firstParticipantId);
       setError('');
+      setSyncWarning('');
       setIsSuccess(false);
       setIsLoading(false);
       setNote('');
@@ -91,6 +93,7 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
     setIsLoading(false);
 
     if (result.success) {
+      setSyncWarning(result.warning || '');
       setIsSuccess(true);
       setTimeout(() => {
         setIsSuccess(false);
@@ -245,7 +248,10 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
           {isSuccess && (
             <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs flex items-center gap-2">
               <CheckCircle className="w-4 h-4 shrink-0" />
-              <span>Presensi manual berhasil disimpan ke database & dicatat di Audit Trail!</span>
+              <span>
+                Presensi manual berhasil dicatat & masuk Audit Trail.
+                {syncWarning ? <span className="block text-amber-300 mt-1">Sinkronisasi: {syncWarning}</span> : <span className="block text-emerald-200 mt-1">Tersimpan & tersinkronisasi.</span>}
+              </span>
             </div>
           )}
 

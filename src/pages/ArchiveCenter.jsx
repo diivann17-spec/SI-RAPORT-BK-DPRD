@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
 import { AKD_CATEGORIES, matchAKDCategory } from '../utils/akdUtils';
-import { Search, Filter, Download, FileText, Image as ImageIcon, FolderArchive, CalendarDays } from 'lucide-react';
+import { Search, Filter, Download, Eye, X, FileText, Image as ImageIcon, FolderArchive, CalendarDays } from 'lucide-react';
 
 const formatDate = (dateString) => {
   if (!dateString) return '-';
@@ -18,6 +18,7 @@ export default function ArchiveCenter() {
   const [selectedType, setSelectedType] = useState('ALL');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
+  const [previewDoc, setPreviewDoc] = useState(null);
 
   const years = useMemo(() => {
     const set = new Set(
@@ -42,6 +43,7 @@ export default function ArchiveCenter() {
             type: file.type?.startsWith('image/') ? 'FOTO' : 'DOKUMEN',
             name: file.name || `Dokumen ${index + 1}`,
             dataUrl: file.dataUrl,
+            mimeType: file.type || '',
             size: file.size,
             label: 'Dokumen LPJ',
             source: 'arsip-dokumen'
@@ -51,6 +53,7 @@ export default function ArchiveCenter() {
             type: 'FOTO',
             name: `Dokumentasi Foto ${index + 1}`,
             dataUrl: typeof photo === 'string' ? photo : photo.dataUrl,
+            mimeType: 'image/*',
             size: null,
             label: photo.isPrimary ? 'Foto Utama' : 'Dokumentasi Kegiatan',
             source: 'dokumentasi'
@@ -78,6 +81,8 @@ export default function ArchiveCenter() {
   }, [activities, search, selectedType, selectedCategory, selectedYear]);
 
   const totalDocs = archiveEntries.reduce((sum, entry) => sum + entry.docs.length, 0);
+
+  const isPreviewable = previewDoc?.type === 'FOTO' || previewDoc?.mimeType === 'application/pdf' || previewDoc?.name?.toLowerCase().endsWith('.pdf');
 
   return (
     <div className="space-y-4">
@@ -187,15 +192,24 @@ export default function ArchiveCenter() {
 
                     <div className="flex items-center gap-2">
                       {doc.dataUrl ? (
-                        <a
-                          href={doc.dataUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] font-bold text-emerald-300"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          Buka
-                        </a>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewDoc({ ...doc, activityTitle: activity.title })}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-[10px] font-bold text-cyan-300"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            Lihat
+                          </button>
+                          <a
+                            href={doc.dataUrl}
+                            download={doc.name}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] font-bold text-emerald-300"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Download
+                          </a>
+                        </>
                       ) : (
                         <span className="text-[10px] text-slate-500">Belum tersedia</span>
                       )}
@@ -207,6 +221,40 @@ export default function ArchiveCenter() {
           ))
         )}
       </div>
+
+      {previewDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-black text-white">{previewDoc.name}</h2>
+                <p className="truncate text-[10px] text-slate-400">{previewDoc.activityTitle} • {previewDoc.label}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a href={previewDoc.dataUrl} download={previewDoc.name} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white hover:bg-emerald-500">
+                  <Download className="h-3.5 w-3.5" /> Download
+                </a>
+                <button type="button" onClick={() => setPreviewDoc(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white" title="Tutup pratinjau">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex min-h-[320px] flex-1 items-center justify-center overflow-auto bg-slate-950 p-4">
+              {previewDoc.type === 'FOTO' ? (
+                <img src={previewDoc.dataUrl} alt={previewDoc.name} className="max-h-[72vh] max-w-full rounded-lg object-contain" />
+              ) : isPreviewable ? (
+                <iframe src={previewDoc.dataUrl} title={previewDoc.name} className="h-[72vh] w-full rounded-lg bg-white" />
+              ) : (
+                <div className="max-w-md text-center text-sm text-slate-300">
+                  <FileText className="mx-auto mb-3 h-12 w-12 text-emerald-400" />
+                  <p>Format dokumen ini belum dapat dipratinjau langsung di browser.</p>
+                  <p className="mt-1 text-xs text-slate-500">Gunakan tombol Download untuk membuka file di perangkat.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

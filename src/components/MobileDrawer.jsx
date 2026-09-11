@@ -133,7 +133,7 @@ export default function MobileDrawer({ isOpen, onClose, activeTab, setActiveTab 
         },
         {
           id: 'reports',
-          label: 'Laporan Terintegrasi',
+          label: 'Laporan',
           icon: BarChart3,
           roles: ['PETUGAS_BK', 'SECRETARIAT_ADMIN', 'ANGGOTA_DPRD']
         },
