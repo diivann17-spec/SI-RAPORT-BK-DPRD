@@ -26,13 +26,14 @@ import ArchiveCenter from './pages/ArchiveCenter';
 import NotificationCenter from './pages/NotificationCenter';
 import AccountManagement from './pages/AccountManagement';
 import SplashScreen from './components/SplashScreen';
-import { Loader2 } from 'lucide-react';
+import { Loader2, QrCode } from 'lucide-react';
 import { authService } from './firebase/authService';
 
 // Inner app mengakses context
 function AppInner() {
   const { loading, authReady, currentUser, currentRole } = useAttendance();
   const [publicGuestRequested, setPublicGuestRequested] = useState(false);
+  const [agendaEntryChoice, setAgendaEntryChoice] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(
     () => (currentRole === 'ANGGOTA_DPRD' ? 'member_portal' : 'dashboard')
@@ -63,7 +64,7 @@ function AppInner() {
   }, [currentUser, currentRole]);
 
   useEffect(() => {
-    if (!authReady || !scannedActivityId || !['opd', 'agenda'].includes(scanType) || currentUser || publicGuestRequested) return;
+    if (!authReady || !scannedActivityId || scanType !== 'opd' || currentUser || publicGuestRequested) return;
     setPublicGuestRequested(true);
     authService.enterPublicGuest().catch(() => setPublicGuestRequested(false));
   }, [authReady, scannedActivityId, scanType, currentUser, publicGuestRequested]);
@@ -82,10 +83,33 @@ function AppInner() {
 
   // QR Agenda tetap menggunakan sesi Firebase agar rules dapat memverifikasi pemilik absensi.
   if (scannedActivityId) {
-    if (scanType === 'member' && !currentUser) {
+    if (scanType === 'agenda' && !currentUser && !agendaEntryChoice) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-5">
+          <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-950 text-emerald-300">
+              <QrCode className="h-7 w-7" />
+            </div>
+            <h1 className="text-xl font-black">Absensi Agenda</h1>
+            <p className="mt-2 text-sm text-slate-400">Pilih jenis peserta untuk melanjutkan absensi.</p>
+            <div className="mt-6 grid gap-3">
+              <button type="button" onClick={() => setAgendaEntryChoice('member')} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500">
+                Anggota DPRD
+                <span className="mt-1 block text-[11px] font-normal text-emerald-100">Login untuk absensi pribadi</span>
+              </button>
+              <button type="button" onClick={() => { setAgendaEntryChoice('opd'); setPublicGuestRequested(true); authService.enterPublicGuest().catch(() => setPublicGuestRequested(false)); }} className="rounded-2xl bg-teal-700 px-4 py-3 text-sm font-black text-white hover:bg-teal-600">
+                Tamu OPD / Instansi
+                <span className="mt-1 block text-[11px] font-normal text-teal-100">Tanpa akun, isi data tamu</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    if ((scanType === 'member' || agendaEntryChoice === 'member') && !currentUser) {
       return <Login isQrAttendance={true} />;
     }
-    if (['opd', 'agenda'].includes(scanType) && !currentUser) {
+    if ((scanType === 'opd' || agendaEntryChoice === 'opd') && !currentUser) {
       return (
         <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
           <div className="text-center space-y-3"><Loader2 className="w-8 h-8 mx-auto animate-spin text-emerald-400" /><p className="text-sm font-semibold">Menyiapkan absensi tamu OPD...</p></div>
@@ -93,7 +117,7 @@ function AppInner() {
       );
     }
     return (
-      (scanType === 'opd' || (scanType === 'agenda' && currentRole !== 'ANGGOTA_DPRD')) ? <PublicOpdAttendancePage
+      (scanType === 'opd' || agendaEntryChoice === 'opd' || (scanType === 'agenda' && currentRole !== 'ANGGOTA_DPRD')) ? <PublicOpdAttendancePage
         initialActivityId={scannedActivityId}
         publicGuest={currentRole === 'PUBLIC_GUEST'}
         onBackToApp={() => {
