@@ -205,19 +205,6 @@ export default function Login({ isQrAttendance = false }) {
               </p>
             </div>
 
-            <div className="rounded-2xl border border-teal-800/70 bg-teal-950/40 p-3">
-              <p className="text-xs font-bold text-teal-200">Tamu OPD / Instansi?</p>
-              <p className="mt-1 text-[11px] text-teal-300/80">Tidak perlu akun. Masuk untuk mengisi absensi agenda sebagai tamu eksternal.</p>
-              <button
-                type="button"
-                onClick={handleGuestAccess}
-                disabled={isLoading}
-                className="mt-2 w-full rounded-xl bg-teal-600 px-3 py-2 text-xs font-black text-white hover:bg-teal-500 disabled:opacity-60"
-              >
-                Masuk sebagai Tamu OPD
-              </button>
-            </div>
-
             {/* Error Message */}
             {errorMsg && (
               <div className="p-3.5 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs flex items-start gap-3">
