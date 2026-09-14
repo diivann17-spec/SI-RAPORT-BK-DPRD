@@ -37,6 +37,18 @@ export default function Login({ isQrAttendance = false }) {
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [accountLocked, setAccountLocked] = useState(false);
 
+  const handleGuestAccess = async () => {
+    setErrorMsg('');
+    setIsLoading(true);
+    try {
+      await authService.enterPublicGuest();
+    } catch (error) {
+      setErrorMsg(error.message || 'Halaman Tamu OPD belum dapat dibuka.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Load remembered username on mount
   useEffect(() => {
     const remembered = authService.getRememberedUsername();
@@ -191,6 +203,19 @@ export default function Login({ isQrAttendance = false }) {
                   ? 'QR Agenda terdeteksi. Setelah login berhasil, formulir absensi akan terbuka otomatis.'
                   : 'Autentikasi akun pengguna terdaftar. Hubungi Admin/BK jika akun belum didaftarkan.'}
               </p>
+            </div>
+
+            <div className="rounded-2xl border border-teal-800/70 bg-teal-950/40 p-3">
+              <p className="text-xs font-bold text-teal-200">Tamu OPD / Instansi?</p>
+              <p className="mt-1 text-[11px] text-teal-300/80">Tidak perlu akun. Masuk untuk mengisi absensi agenda sebagai tamu eksternal.</p>
+              <button
+                type="button"
+                onClick={handleGuestAccess}
+                disabled={isLoading}
+                className="mt-2 w-full rounded-xl bg-teal-600 px-3 py-2 text-xs font-black text-white hover:bg-teal-500 disabled:opacity-60"
+              >
+                Masuk sebagai Tamu OPD
+              </button>
             </div>
 
             {/* Error Message */}

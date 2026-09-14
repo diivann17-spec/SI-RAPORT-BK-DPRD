@@ -112,6 +112,10 @@ function AppInner() {
     );
   }
 
+  if (currentRole === 'PUBLIC_GUEST') {
+    return <PublicOpdAttendancePage onBackToApp={() => authService.logout()} publicGuest />;
+  }
+
   if (!currentUser) {
     return <Login />;
   }
