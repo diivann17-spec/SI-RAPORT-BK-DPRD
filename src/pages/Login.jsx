@@ -25,7 +25,7 @@ import {
  * - Role ditentukan oleh Admin, bukan user
  * - Tidak ada self-registration
  */
-export default function Login() {
+export default function Login({ isQrAttendance = false }) {
   const { login } = useAttendance();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -185,9 +185,11 @@ export default function Login() {
         <div className="lg:col-span-7">
           <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl space-y-6">
             <div className="border-b border-slate-800 pb-4">
-              <h3 className="text-lg font-black text-white">Masuk ke Sistem SI-RAPORT</h3>
+              <h3 className="text-lg font-black text-white">{isQrAttendance ? 'Masuk untuk Melanjutkan Absensi' : 'Masuk ke Sistem SI-RAPORT'}</h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Autentikasi akun pengguna terdaftar. Hubungi Admin/BK jika akun belum didaftarkan.
+                {isQrAttendance
+                  ? 'QR Agenda terdeteksi. Setelah login berhasil, formulir absensi akan terbuka otomatis.'
+                  : 'Autentikasi akun pengguna terdaftar. Hubungi Admin/BK jika akun belum didaftarkan.'}
               </p>
             </div>
 

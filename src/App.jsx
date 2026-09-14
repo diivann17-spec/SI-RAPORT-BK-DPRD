@@ -29,7 +29,7 @@ import { Loader2 } from 'lucide-react';
 
 // Inner app mengakses context
 function AppInner() {
-  const { loading, currentUser, currentRole } = useAttendance();
+  const { loading, authReady, currentUser, currentRole } = useAttendance();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(
     () => (currentRole === 'ANGGOTA_DPRD' ? 'member_portal' : 'dashboard')
@@ -58,10 +58,22 @@ function AppInner() {
     }
   }, [currentUser, currentRole]);
 
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
+        <div className="text-center space-y-3">
+          <Loader2 className="w-8 h-8 mx-auto animate-spin text-emerald-400" />
+          <p className="text-sm font-semibold">Memverifikasi sesi pengguna...</p>
+          <p className="text-xs text-slate-500">Menyiapkan halaman absensi dan koneksi Firebase.</p>
+        </div>
+      </div>
+    );
+  }
+
   // QR Agenda tetap menggunakan sesi Firebase agar rules dapat memverifikasi pemilik absensi.
   if (scannedActivityId) {
     if (!currentUser) {
-      return <Login />;
+      return <Login isQrAttendance={true} />;
     }
     return (
       <PublicAttendancePage

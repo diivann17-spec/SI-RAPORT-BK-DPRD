@@ -279,9 +279,11 @@ export function AttendanceProvider({ children }) {
   // Reason: User bisa manipulate localStorage untuk bypass authentication
   // Instead: Load only AFTER session verification di authService
   const [currentUser, setCurrentUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     return authService.subscribe((session) => {
+      setAuthReady(true);
       if (!session) {
         setCurrentUser(null);
         setCurrentRole('PETUGAS_BK');
@@ -1944,7 +1946,7 @@ export function AttendanceProvider({ children }) {
       members, personnel, activities, logs, auditLogs, bkNotes,
       rooms,
       scoreSettings, updateScoreSettings, reportSigners, saveReportSigner, deleteReportSigner,
-      loading, currentUser, login, logout,
+      loading, authReady, currentUser, login, logout,
       currentRole,
       activeMemberId, setActiveMemberId,
       canManageMembers, isAdmin, isBK,
