@@ -364,6 +364,33 @@
     display: none !important;
   }
 
+  body.raport-list-printing #root > * {
+    visibility: hidden !important;
+  }
+
+  body.raport-list-printing #root .report-list-page,
+  body.raport-list-printing #root .report-list-page * {
+    visibility: visible !important;
+  }
+
+  body.raport-list-printing #root .report-list-page {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    padding: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  body.raport-list-printing .report-list-page > * {
+    box-shadow: none !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  body.raport-list-printing .report-list-page table {
+    font-size: 8pt !important;
+  }
+
   /* Print only the invitation modal; the application shell must stay out. */
   #root:has(.invitation-generator-modal) > * { visibility: hidden !important; }
   #root:has(.invitation-generator-modal) .invitation-generator-modal,

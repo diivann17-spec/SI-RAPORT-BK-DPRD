@@ -47,8 +47,10 @@ export default function Dashboard({ onNavigate }) {
   const yellowMembers = memberStats.filter(s => s.raport.categoryInfo.key === 'YELLOW');
   const redMembers = memberStats.filter(s => s.raport.categoryInfo.key === 'RED');
 
-  const avgPercentage = memberStats.length
-    ? Math.round(memberStats.reduce((acc, curr) => acc + curr.raport.percentage, 0) / memberStats.length)
+  // Hanya hitung rata-rata dari anggota yang memiliki data absensi (percentage !== null)
+  const membersWithData = memberStats.filter(s => s.raport.percentage !== null);
+  const avgPercentage = membersWithData.length
+    ? Math.round(membersWithData.reduce((acc, curr) => acc + curr.raport.percentage, 0) / membersWithData.length)
     : 0;
   const averageDiscipline = getDisciplineGrade(avgPercentage, scoreSettings);
 

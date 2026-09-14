@@ -23,6 +23,7 @@ import ReportCenter from './pages/ReportCenter';
 import CalendarAgenda from './pages/CalendarAgenda';
 import ArchiveCenter from './pages/ArchiveCenter';
 import NotificationCenter from './pages/NotificationCenter';
+import AccountManagement from './pages/AccountManagement';
 import SplashScreen from './components/SplashScreen';
 import { Loader2 } from 'lucide-react';
 
@@ -57,8 +58,11 @@ function AppInner() {
     }
   }, [currentUser, currentRole]);
 
-  // Jika membuka dari QR Code Agenda langsung (Google Lens / Kamera HP tanpa login wajib)
+  // QR Agenda tetap menggunakan sesi Firebase agar rules dapat memverifikasi pemilik absensi.
   if (scannedActivityId) {
+    if (!currentUser) {
+      return <Login />;
+    }
     return (
       <PublicAttendancePage
         initialActivityId={scannedActivityId}
@@ -125,6 +129,7 @@ function AppInner() {
           {activeTab === 'personnel' && <PersonnelList />}
           {activeTab === 'activities' && <ActivityList />}
           {activeTab === 'audit' && <AuditLogs />}
+          {activeTab === 'accounts' && <AccountManagement />}
           {activeTab === 'settings' && <Settings />}
           {activeTab === 'rooms' && <RoomList />}
         </main>

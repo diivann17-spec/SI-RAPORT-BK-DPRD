@@ -1,0 +1,231 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Accounts must use the same document ID as the Firebase Auth UID.
+    function accountPath() {
+      return /databases/$(database)/documents/accounts/$(request.auth.uid);
+    }
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasAccount() {
+      return signedIn() && exists(accountPath());
+    }
+
+    function activeAccount() {
+      return hasAccount() && get(accountPath()).data.status == 'ACTIVE';
+    }
+
+    function hasRole(role) {
+      return activeAccount() && get(accountPath()).data.role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('SECRETARIAT_ADMIN');
+    }
+
+    function isBK() {
+      return hasRole('PETUGAS_BK');
+    }
+
+    function isScanOperator() {
+      return hasRole('PETUGAS_SCAN');
+    }
+
+    function isAdminOrBK() {
+      return isAdmin() || isBK();
+    }
+
+    function validRole(role) {
+      return role in [
+        'SECRETARIAT_ADMIN',
+        'PETUGAS_BK',
+        'PETUGAS_SCAN',
+        'ANGGOTA_DPRD'
+      ];
+    }
+
+    function validAccountStatus(status) {
+      return status in ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
+    }
+
+    function hasAccountFields() {
+      return request.resource.data.keys().hasAll([
+        'username',
+        'usernameNormalized',
+        'uid',
+        'email',
+        'fullName',
+        'role',
+        'status'
+      ]) &&
+      request.resource.data.username is string &&
+      request.resource.data.usernameNormalized is string &&
+      request.resource.data.uid is string &&
+      request.resource.data.email is string &&
+      request.resource.data.fullName is string &&
+      request.resource.data.usernameNormalized.size() > 0 &&
+      request.resource.data.uid.size() > 0 &&
+      request.resource.data.email.size() > 0 &&
+      request.resource.data.fullName.size() > 0;
+    }
+
+    function accountImmutableFieldsUnchanged() {
+      return request.resource.data.createdBy == resource.data.createdBy &&
+             request.resource.data.createdAt == resource.data.createdAt &&
+             request.resource.data.uid == resource.data.uid &&
+             request.resource.data.username == resource.data.username &&
+             request.resource.data.usernameNormalized == resource.data.usernameNormalized;
+    }
+
+    function hasServerUpdateMetadata() {
+      return request.resource.data.updatedBy == request.auth.uid &&
+             request.resource.data.updatedAt == request.time;
+    }
+
+    // ─── ACCOUNTS: whitelist managed by Admin ───────────────────────────────
+    match /accounts/{accountId} {
+      allow get: if isAdminOrBK() || (activeAccount() && request.auth.uid == accountId)
+                  // Izinkan membaca akun sendiri berdasarkan UID (saat proses login/session restore)
+                  || (signedIn() && request.auth.uid == accountId);
+      // Izinkan list untuk user yang sudah terautentikasi - diperlukan saat login untuk
+      // mencari akun berdasarkan usernameNormalized (query getDocs oleh accountService)
+      allow list: if isAdminOrBK() || signedIn();
+
+      allow create: if (isAdmin() ||
+        (isBK() && request.resource.data.role != 'SECRETARIAT_ADMIN')) &&
+        hasAccountFields() &&
+        validRole(request.resource.data.role) &&
+        validAccountStatus(request.resource.data.status) &&
+        request.resource.data.status in ['ACTIVE', 'INACTIVE'] &&
+        request.resource.data.uid == accountId &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.createdAt == request.time;
+
+      allow update: if (isAdmin() ||
+        (isBK() && resource.data.role != 'SECRETARIAT_ADMIN' &&
+         request.resource.data.role == resource.data.role)) &&
+        hasAccountFields() &&
+        validRole(request.resource.data.role) &&
+        validAccountStatus(request.resource.data.status) &&
+        accountImmutableFieldsUnchanged() &&
+        hasServerUpdateMetadata();
+
+      // Use INACTIVE/SUSPENDED instead of deleting accounts in production.
+      allow delete: if false;
+    }
+
+    // ─── MEMBERS ────────────────────────────────────────────────────────────
+    match /members/{memberId} {
+      allow read: if activeAccount();
+      allow create, update: if isAdminOrBK();
+      allow delete: if isAdmin();
+    }
+
+    // ─── PERSONNEL ──────────────────────────────────────────────────────────
+    match /personnel/{personnelId} {
+      allow read: if activeAccount();
+      allow create, update: if isAdminOrBK();
+      allow delete: if isAdmin();
+    }
+
+    // ─── ACTIVITIES ─────────────────────────────────────────────────────────
+    match /activities/{activityId} {
+      allow read: if activeAccount();
+      allow create: if isAdminOrBK();
+      allow update: if isAdmin() ||
+        (isBK() && resource.data.createdBy == request.auth.uid);
+      allow delete: if isAdmin();
+
+      match /attendance/{attendanceId} {
+        allow read: if activeAccount();
+        allow create, update: if activeAccount();
+        allow delete: if isAdminOrBK();
+      }
+    }
+
+    // ─── ATTENDANCE LOGS ─────────────────────────────────────────────────────
+    match /attendanceLogs/{logId} {
+      // Admin & BK bisa baca semua log; Anggota hanya baca log miliknya sendiri;
+      // PETUGAS_SCAN bisa baca semua log (untuk validasi duplikat saat scan)
+      allow list: if isAdminOrBK() || isScanOperator() ||
+        (activeAccount() && resource.data.memberId == get(accountPath()).data.memberId);
+      allow get: if isAdminOrBK() || isScanOperator() ||
+        (activeAccount() &&
+         get(accountPath()).data.memberId == resource.data.memberId);
+      // Anggota hanya boleh mencatat dirinya sendiri; operator dapat mencatat peserta.
+      allow create: if (isAdmin() || isBK() || isScanOperator() ||
+        (activeAccount() && get(accountPath()).data.memberId == request.resource.data.memberId)) &&
+        request.resource.data.keys().hasAll(['activityId', 'agendaId', 'participantId', 'participantType']) &&
+        request.resource.data.activityId is string &&
+        request.resource.data.agendaId == request.resource.data.activityId &&
+        request.resource.data.participantId is string &&
+        (request.resource.data.participantType == 'EXTERNAL' ||
+          request.resource.data.memberId == request.resource.data.participantId);
+      // Check-out adalah update pada log yang sama dan dapat dilakukan oleh pemilik atau operator.
+      allow update: if isAdminOrBK() || isScanOperator() ||
+        (activeAccount() && get(accountPath()).data.memberId == resource.data.memberId &&
+          request.resource.data.memberId == resource.data.memberId);
+      allow delete: if isAdmin();
+    }
+
+    match /deletedAttendanceLogs/{logId} {
+      allow read: if isAdminOrBK();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // ─── BK NOTES ───────────────────────────────────────────────────────────
+    match /bkNotes/{noteId} {
+      allow read: if isAdminOrBK();
+      allow create: if isBK();
+      allow update: if isAdmin() ||
+        (isBK() && resource.data.createdBy == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // ─── AUDIT TRAILS ────────────────────────────────────────────────────────
+    match /auditTrails/{trailId} {
+      allow read: if isAdminOrBK();
+      allow create: if isAdminOrBK() ||
+        (signedIn() && request.auth.token.systemAccess == true);
+      allow update, delete: if false;
+    }
+
+    // ─── ROOMS ──────────────────────────────────────────────────────────────
+    match /rooms/{roomId} {
+      allow read: if activeAccount();
+      allow create, update, delete: if isAdminOrBK();
+    }
+
+    // ─── REPORT SIGNERS ─────────────────────────────────────────────────────
+    match /reportSigners/{signerId} {
+      allow read: if activeAccount();
+      allow create, update, delete: if isAdminOrBK();
+    }
+
+    // ─── LEAVE REQUESTS ─────────────────────────────────────────────────────
+    match /leaveRequests/{requestId} {
+      allow read: if isAdminOrBK() ||
+        (activeAccount() && resource.data.requestedBy == request.auth.uid);
+      allow create: if activeAccount();
+      allow update: if isAdminOrBK() ||
+        (activeAccount() && resource.data.requestedBy == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // ─── SETTINGS ────────────────────────────────────────────────────────────
+    match /settings/{key} {
+      allow read: if activeAccount();
+      allow write: if isAdmin();
+    }
+
+    // ─── DEFAULT DENY ────────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

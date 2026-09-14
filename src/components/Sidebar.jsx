@@ -16,7 +16,8 @@ import {
   BarChart3,
   Bell,
   DoorOpen,
-  FolderArchive
+  FolderArchive,
+  UserCog
 } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab }) {
@@ -129,6 +130,12 @@ export default function Sidebar({ activeTab, setActiveTab }) {
       id: 'audit',
       label: 'Log Jejak Audit',
       icon: ShieldCheck,
+      roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
+    },
+    {
+      id: 'accounts',
+      label: 'Manajemen Akun / Pengguna',
+      icon: UserCog,
       roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
     },
     {

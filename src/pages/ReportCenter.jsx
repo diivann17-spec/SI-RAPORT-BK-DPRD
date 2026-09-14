@@ -100,12 +100,12 @@ export default function ReportCenter() {
   };
 
   const memberLogs = useMemo(
-    () => logs.filter((log) => log.participantType === 'INTERNAL' && log.participantCategory !== 'PERSONEL SEKRETARIAT'),
+    () => logs.filter((log) => log.participantType !== 'EXTERNAL' && log.participantCategory !== 'PERSONEL SEKRETARIAT'),
     [logs]
   );
 
   const personnelAttendanceLogs = useMemo(
-    () => logs.filter(log => log.participantType === 'INTERNAL' && log.participantCategory === 'PERSONEL SEKRETARIAT' && (selectedReportActivityId === 'ALL' || log.activityId === selectedReportActivityId)),
+    () => logs.filter(log => log.participantType !== 'EXTERNAL' && log.participantCategory === 'PERSONEL SEKRETARIAT' && (selectedReportActivityId === 'ALL' || (log.activityId || log.agendaId) === selectedReportActivityId)),
     [logs, selectedReportActivityId]
   );
 
@@ -115,12 +115,12 @@ export default function ReportCenter() {
   );
 
   const reportMemberLogs = useMemo(
-    () => memberLogs.filter(log => selectedReportActivityId === 'ALL' || log.activityId === selectedReportActivityId),
+    () => memberLogs.filter(log => selectedReportActivityId === 'ALL' || (log.activityId || log.agendaId) === selectedReportActivityId),
     [memberLogs, selectedReportActivityId]
   );
 
   const reportExternalLogs = useMemo(
-    () => externalLogs.filter(log => selectedReportActivityId === 'ALL' || log.activityId === selectedReportActivityId),
+    () => externalLogs.filter(log => selectedReportActivityId === 'ALL' || (log.activityId || log.agendaId) === selectedReportActivityId),
     [externalLogs, selectedReportActivityId]
   );
 

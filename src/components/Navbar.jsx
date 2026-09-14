@@ -8,7 +8,6 @@ import {
   Smartphone,
   LogOut,
   Clock,
-  ChevronDown,
   Menu,
   Bell
 } from 'lucide-react';
@@ -16,13 +15,11 @@ import {
 export default function Navbar({ onOpenMenu, onOpenNotifications }) {
   const {
     currentRole,
-    setCurrentRole,
-    activeMemberId,
-    setActiveMemberId,
     members,
     activities,
     logs,
     currentUser,
+    syncStatus,
     logout
   } = useAttendance();
 
@@ -46,8 +43,6 @@ export default function Navbar({ onOpenMenu, onOpenNotifications }) {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-
-  const activeMember = members.find(m => m.id === activeMemberId) || members[0];
 
   return (
     <header className="no-print bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-lg">
@@ -108,14 +103,18 @@ export default function Navbar({ onOpenMenu, onOpenNotifications }) {
             </div>
 
             {/* Live Clock WIB (Hidden on Mobile) */}
+            <div className={`hidden md:flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-bold ${syncStatus === 'synced' ? 'border-emerald-800 bg-emerald-950/70 text-emerald-300' : syncStatus === 'syncing' ? 'border-amber-800 bg-amber-950/70 text-amber-300' : 'border-rose-800 bg-rose-950/70 text-rose-300'}`} title="Status koneksi dan sinkronisasi Firestore">
+              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+              {syncStatus === 'synced' ? 'Tersinkron' : syncStatus === 'syncing' ? 'Menyinkronkan' : syncStatus === 'offline' ? 'Offline' : 'Belum tersambung'}
+            </div>
+
             <div className="hidden lg:flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 text-xs font-mono text-emerald-300">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
               <span>{time.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB</span>
             </div>
 
-            {/* Role Simulator Switcher Dropdown */}
-            <div className="relative group">
-              <div className="flex items-center space-x-1.5 sm:space-x-2 bg-slate-800 hover:bg-slate-700 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-700 cursor-pointer transition text-xs">
+            {/* Role berasal dari sesi terverifikasi, bukan pilihan client. */}
+            <div className="flex items-center space-x-1.5 sm:space-x-2 bg-slate-800 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-700 text-xs">
                 <span className="text-slate-400 hidden sm:inline">Akses:</span>
                 <span className="font-medium text-amber-300 flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs truncate max-w-[90px] sm:max-w-none">
                   {currentRole === 'PETUGAS_BK' && <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
@@ -130,55 +129,8 @@ export default function Navbar({ onOpenMenu, onOpenNotifications }) {
                     {currentRole === 'SECRETARIAT_ADMIN' && 'Sekretariat'}
                   </span>
                 </span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              </div>
-
-              {/* Role Select Options */}
-              <div className="absolute right-0 mt-2 w-56 sm:w-64 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl py-2 hidden group-hover:block z-50">
-                <div className="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase border-b border-slate-700/60 pb-1.5">
-                  Simulasi Hak Akses Pengguna
-                </div>
-                <button
-                  onClick={() => setCurrentRole('PETUGAS_BK')}
-                  className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-slate-700 ${currentRole === 'PETUGAS_BK' ? 'text-amber-400 bg-slate-700/50 font-bold' : 'text-slate-200'}`}
-                >
-                  <span className="flex items-center gap-2">🛡️ Badan Kehormatan (BK)</span>
-                </button>
-                <button
-                  onClick={() => setCurrentRole('PETUGAS_SCAN')}
-                  className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-slate-700 ${currentRole === 'PETUGAS_SCAN' ? 'text-cyan-400 bg-slate-700/50 font-bold' : 'text-slate-200'}`}
-                >
-                  <span className="flex items-center gap-2">📷 Operator Laptop Scan QR</span>
-                </button>
-                <button
-                  onClick={() => setCurrentRole('ANGGOTA_DPRD')}
-                  className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-slate-700 ${currentRole === 'ANGGOTA_DPRD' ? 'text-emerald-400 bg-slate-700/50 font-bold' : 'text-slate-200'}`}
-                >
-                  <span className="flex items-center gap-2">📱 Anggota DPRD (App Mobile)</span>
-                </button>
-                <button
-                  onClick={() => setCurrentRole('SECRETARIAT_ADMIN')}
-                  className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-slate-700 ${currentRole === 'SECRETARIAT_ADMIN' ? 'text-blue-400 bg-slate-700/50 font-bold' : 'text-slate-200'}`}
-                >
-                  <span className="flex items-center gap-2">🏛️ Admin Sekretariat DPRD</span>
-                </button>
-              </div>
+                <ShieldAlert className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             </div>
-
-            {/* If role is Anggota DPRD, show member picker on desktop */}
-            {currentRole === 'ANGGOTA_DPRD' && (
-              <select
-                value={activeMemberId}
-                onChange={(e) => setActiveMemberId(e.target.value)}
-                className="hidden sm:block bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-emerald-500 max-w-[150px] truncate"
-              >
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({m.fraksi.replace('Fraksi ', '')})
-                  </option>
-                ))}
-              </select>
-            )}
 
             {/* Logout Button */}
             <button

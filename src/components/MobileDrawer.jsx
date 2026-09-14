@@ -19,7 +19,8 @@ import {
   Mail,
   BarChart3,
   FolderArchive,
-  DoorOpen
+  DoorOpen,
+  UserCog
 } from 'lucide-react';
 
 export default function MobileDrawer({ isOpen, onClose, activeTab, setActiveTab }) {
@@ -172,6 +173,12 @@ export default function MobileDrawer({ isOpen, onClose, activeTab, setActiveTab 
     {
       title: 'SISTEM',
       items: [
+        {
+          id: 'accounts',
+          label: 'Manajemen Akun / Pengguna',
+          icon: UserCog,
+          roles: ['SECRETARIAT_ADMIN', 'PETUGAS_BK']
+        },
         {
           id: 'audit',
           label: 'Log Jejak Audit',

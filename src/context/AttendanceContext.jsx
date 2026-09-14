@@ -1,13 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   collection, doc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
-  query, orderBy, onSnapshot, serverTimestamp, where, limit
+  query, orderBy, onSnapshot, serverTimestamp, where, limit, waitForPendingWrites
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { getRaportCategory, getDisciplineGrade, calculateAttendanceStatus } from '../utils/raportUtils';
 import { getDeviceFingerprint, validateDeviceSingleAttendance } from '../utils/deviceUtils';
 import { DEFAULT_ROOMS, findRoomConflict } from '../utils/roomUtils';
 import { matchAKDCategory, memberHasAKD } from '../utils/akdUtils';
+import { authService } from '../firebase/authService';
+import { createAccount, updateAccount, ACCOUNT_ROLES, ACCOUNT_STATUS } from '../firebase/accountService';
 // Mock data dihapus — app mulai kosong, data dari Firestore / input manual
 
 const AttendanceContext = createContext();
@@ -105,8 +107,8 @@ const safeDbWrite = async (operation, timeoutMs = 4000, timeoutMessage = 'Koneks
     console.warn(timeoutMessage, error);
     return {
       ok: false,
-      timedOut: true,
-      message: timeoutMessage,
+      timedOut: error?.message === timeoutMessage,
+      message: error?.message === timeoutMessage ? timeoutMessage : `${timeoutMessage} (${error?.message || 'Firestore menolak operasi.'})`,
     };
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
@@ -273,78 +275,96 @@ export function AttendanceProvider({ children }) {
     };
   }, [deletedLogIds]);
 
-  // Role: 'SECRETARIAT_ADMIN' | 'PETUGAS_BK' | 'PETUGAS_SCAN' | 'ANGGOTA_DPRD'
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const stored = localStorage.getItem('siraport_user');
-      if (!stored) return null;
-
-      const parsed = JSON.parse(stored);
-      if (!parsed || typeof parsed !== 'object') return null;
-
-      return {
-        ...parsed,
-        role: normalizeRole(parsed.role),
-        roleLabel: parsed.roleLabel || (
-          normalizeRole(parsed.role) === 'SECRETARIAT_ADMIN'
-            ? 'Admin Sekretariat DPRD'
-            : normalizeRole(parsed.role) === 'PETUGAS_BK'
-              ? 'Badan Kehormatan (BK)'
-              : normalizeRole(parsed.role) === 'PETUGAS_SCAN'
-                ? 'Operator Laptop Presensi'
-                : 'Anggota Dewan (DPRD)'
-        ),
-      };
-    } catch (e) {
-      return null;
-    }
-  });
-
-  const [currentRole, setCurrentRole] = useState(
-    () => normalizeRole(currentUser?.role || localStorage.getItem('siraport_role') || 'PETUGAS_BK')
-  );
-  const [activeMemberId, setActiveMemberId] = useState(
-    () => currentUser?.memberId || localStorage.getItem('siraport_active_member_id') || 'DPRD-001'
-  );
+  // 🔐 SECURITY FIX: Do NOT auto-load currentUser from localStorage on app start!
+  // Reason: User bisa manipulate localStorage untuk bypass authentication
+  // Instead: Load only AFTER session verification di authService
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('siraport_user', JSON.stringify(currentUser));
-      localStorage.setItem('siraport_role', currentRole);
-      localStorage.setItem('siraport_active_member_id', activeMemberId);
-    } else {
-      localStorage.removeItem('siraport_user');
-      localStorage.removeItem('siraport_role');
-      localStorage.removeItem('siraport_active_member_id');
-    }
-  }, [currentUser, currentRole, activeMemberId]);
+    return authService.subscribe((session) => {
+      if (!session) {
+        setCurrentUser(null);
+        setCurrentRole('PETUGAS_BK');
+        setActiveMemberId('DPRD-001');
+        return;
+      }
 
-  // Login handler
-  const login = ({ role, username, name, memberId }) => {
+      setCurrentUser({
+        accountId: session.accountId,
+        uid: session.uid,
+        role: session.role,
+        username: session.username,
+        name: session.fullName,
+        memberId: session.memberId,
+        status: session.status,
+        roleLabel: session.role === 'SECRETARIAT_ADMIN' ? 'Admin Sekretariat DPRD' :
+          session.role === 'PETUGAS_BK' ? 'Badan Kehormatan (BK)' :
+            session.role === 'PETUGAS_SCAN' ? 'Operator Laptop Presensi' : 'Anggota Dewan (DPRD)'
+      });
+      setCurrentRole(session.role);
+      if (session.memberId) setActiveMemberId(session.memberId);
+    });
+  }, []);
+
+  const [currentRole, setCurrentRole] = useState(
+    () => normalizeRole(currentUser?.role || 'PETUGAS_BK')
+  );
+  const [activeMemberId, setActiveMemberId] = useState(
+    () => currentUser?.memberId || 'DPRD-001'
+  );
+
+  // 🔐 SECURITY FIX: login() dengan STRICT VALIDATION
+  // Requirement: Data harus dari verified account (Firestore), bukan user input
+  const login = ({ role, username, name, memberId, accountId, status }) => {
+    // ⚠️ VALIDATION #1: Role harus valid (dari enum)
+    const validRoles = ['SECRETARIAT_ADMIN', 'PETUGAS_BK', 'PETUGAS_SCAN', 'ANGGOTA_DPRD'];
+    if (!validRoles.includes(role)) {
+      console.error('[SECURITY] Invalid role attempt:', role);
+      throw new Error('Invalid role: ' + role);
+    }
+
+    // ⚠️ VALIDATION #2: Status HARUS "ACTIVE" (dari Firestore)
+    if (status !== 'ACTIVE') {
+      console.error('[SECURITY] Account not active:', { username, status });
+      throw new Error('Account is not active: ' + status);
+    }
+
+    // ⚠️ VALIDATION #3: accountId WAJIB ada (untuk verification nantinya)
+    if (!accountId) {
+      console.error('[SECURITY] Account ID missing');
+      throw new Error('Account ID is required');
+    }
+
+    // ⚠️ VALIDATION #4: username & name tidak boleh kosong
+    if (!username || !name) {
+      console.error('[SECURITY] Username or name missing');
+      throw new Error('Username and name are required');
+    }
+
     const normalizedRole = normalizeRole(role);
     const userObj = {
+      accountId: accountId,  // ← Added untuk verification
       role: normalizedRole,
       username: username || 'user',
       name: name || username || 'Pengguna',
       memberId: memberId || 'DPRD-001',
+      status: status,        // ← Added untuk verification
       roleLabel: normalizedRole === 'SECRETARIAT_ADMIN' ? 'Admin Sekretariat DPRD' :
                  normalizedRole === 'PETUGAS_BK' ? 'Badan Kehormatan (BK)' :
                  normalizedRole === 'PETUGAS_SCAN' ? 'Operator Laptop Presensi' : 'Anggota Dewan (DPRD)',
-      loginAt: new Date().toISOString()
+      loginAt: new Date().toISOString(),
+      verifiedAt: new Date().toISOString()  // ← Track when verified
     };
+    
     setCurrentUser(userObj);
     setCurrentRole(userObj.role);
     if (memberId) setActiveMemberId(memberId);
     
-    // Simpan segera ke localStorage
-    localStorage.setItem('siraport_user', JSON.stringify(userObj));
-    localStorage.setItem('siraport_role', userObj.role);
-    if (memberId) localStorage.setItem('siraport_active_member_id', memberId);
-
+    console.log('[AUTH] User logged in:', { username, role: normalizedRole, accountId });
     logAudit({
       action: 'USER_LOGIN',
-      details: `Login berhasil: ${userObj.name} (${userObj.role})`,
-      method: 'LOCAL_SIMULATION'
+      details: `Login verified: ${userObj.name} (${userObj.role}) - AccountID: ${accountId}`,
+      method: 'WHITELIST_AUTHENTICATION'
     });
   };
 
@@ -362,18 +382,13 @@ export function AttendanceProvider({ children }) {
     setCurrentUser(null);
     setCurrentRole('PETUGAS_BK');
     setActiveMemberId('DPRD-001');
-
-    // 2. Hapus seluruh data autentikasi dari localStorage
-    try {
-      localStorage.removeItem('siraport_user');
-      localStorage.removeItem('siraport_role');
-      localStorage.removeItem('siraport_active_member_id');
-    } catch (e) {}
   };
+
 
   // ─── Realtime Firestore listeners with auto-seed and robust multi-device sync ───
   useEffect(() => {
     const unsubs = [];
+    if (!currentUser) return () => {};
     try {
       // 1. Listen Members
       unsubs.push(onSnapshot(collection(db, COL.MEMBERS), (snap) => {
@@ -406,9 +421,11 @@ export function AttendanceProvider({ children }) {
       }, err => console.warn('Firestore activities fallback:', err.message)));
 
       // 3. Listen Attendance Logs (Cross-Device Realtime Sync)
-      unsubs.push(onSnapshot(collection(db, COL.LOGS), (snap) => {
-        if (!snap.empty) {
-          const firestoreLogs = snap.docs.filter(d => !deletedLogIds.includes(d.id)).map(d => {
+      const logsQuery = currentRole === 'ANGGOTA_DPRD' && currentUser.memberId
+        ? query(collection(db, COL.LOGS), where('memberId', '==', currentUser.memberId))
+        : collection(db, COL.LOGS);
+      unsubs.push(onSnapshot(logsQuery, (snap) => {
+        const firestoreLogs = snap.docs.filter(d => !deletedLogIds.includes(d.id)).map(d => {
             const raw = d.data();
             // Normalisasi timestamp dari Firestore Timestamp objek ke string ISO
             let tsStr = raw.timestamp;
@@ -424,24 +441,17 @@ export function AttendanceProvider({ children }) {
               ...raw,
               timestamp: tsStr
             };
-          });
+        });
 
-          setLogs(prev => {
-            const map = new Map();
-            // Masukkan data default/local dulu
-            prev.filter(l => !deletedLogIds.includes(l.id)).forEach(l => map.set(l.id, l));
-            // Timpa dengan data live Firestore dari HP/perangkat lain
-            firestoreLogs.forEach(l => map.set(l.id, l));
-            const merged = Array.from(map.values()).sort((a, b) => {
-              const aTs = getComparableTimestamp(a.timestamp);
-              const bTs = getComparableTimestamp(b.timestamp);
-              return bTs.localeCompare(aTs);
-            });
-            try { localStorage.setItem('siraport_logs', JSON.stringify(merged)); } catch (e) {}
-            return merged;
-          });
-        }
-        // Firestore kosong = belum ada log absensi
+        // Firestore adalah sumber kebenaran; cache lokal tidak boleh menciptakan
+        // absensi atau angka raport yang tidak ada di database.
+        const nextLogs = firestoreLogs.sort((a, b) => {
+          const aTs = getComparableTimestamp(a.timestamp);
+          const bTs = getComparableTimestamp(b.timestamp);
+          return bTs.localeCompare(aTs);
+        });
+        setLogs(nextLogs);
+        try { localStorage.setItem('siraport_logs', JSON.stringify(nextLogs)); } catch (e) {}
       }, err => console.warn('Firestore logs fallback:', err.message)));
 
       unsubs.push(onSnapshot(collection(db, COL.DELETED_LOGS), (snap) => {
@@ -492,7 +502,7 @@ export function AttendanceProvider({ children }) {
     }
 
     return () => unsubs.forEach(u => u && u());
-  }, []);
+  }, [currentRole, currentUser]);
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
   const getMemberById = useCallback((id) => members.find(m => m.id === id), [members]);
@@ -612,14 +622,49 @@ export function AttendanceProvider({ children }) {
       return noData();
     }
     // Pastikan hanya menghitung log dengan participantType !== 'EXTERNAL' dan memberId match
-    const memberLogs = logs.filter(l => l.memberId === memberId && l.participantType === 'INTERNAL' && l.participantCategory !== 'PERSONEL SEKRETARIAT');
+    const memberLogs = logs.filter(l => l.memberId === memberId && l.participantType !== 'EXTERNAL' && l.participantCategory !== 'PERSONEL SEKRETARIAT');
+    
+    // Kumpulkan ID aktivitas dari log absensi yang sudah ada untuk member ini
+    // (backward compatible: agar absensi yang sudah dilakukan tetap terhitung meski anggota
+    //  belum terdaftar di participantMemberIds saat itu)
+    const loggedActivityIds = new Set(memberLogs.map(l => l.activityId || l.agendaId).filter(Boolean));
+
     let relevantActivities = activities.filter(activity => {
-      if (!Array.isArray(activity.participantMemberIds) || !activity.participantMemberIds.includes(memberId)) return false;
-      if (activity.participantStatuses?.[memberId] && activity.participantStatuses[memberId] !== 'WAJIB_HADIR') return false;
-      if (!activity.category) return false;
+      const isInParticipantList = Array.isArray(activity.participantMemberIds) && activity.participantMemberIds.includes(memberId);
+      const hasAttendanceLog = loggedActivityIds.has(activity.id);
+      const activityLog = memberLogs.find(log => (log.activityId || log.agendaId) === activity.id);
+      const isMandatoryParticipant = isInParticipantList &&
+        (activity.participantStatuses?.[memberId] || 'WAJIB_HADIR') === 'WAJIB_HADIR';
+      const isCountableLog = hasAttendanceLog &&
+        activityLog?.includedInRaport !== false &&
+        (!activityLog?.participantStatus || activityLog.participantStatus === 'WAJIB_HADIR');
+      
+      // Raport keseluruhan mengikuti daftar wajib agenda atau log absensi valid.
+      // Filter AKD di bawah tetap membatasi hasil sesuai kategori AKD.
+      if (!isMandatoryParticipant && !isCountableLog) return false;
+      
+      // Jika terdaftar di peserta, cek status WAJIB_HADIR
+      if (isInParticipantList && activity.participantStatuses?.[memberId] && activity.participantStatuses[memberId] !== 'WAJIB_HADIR') return false;
+      
+      // Jika hanya via log absensi (tidak di daftar peserta), tetap masukkan ke penilaian
+      // kecuali log-nya berstatus 'UNDANGAN' atau 'OPSIONAL'
+      if (!isInParticipantList && hasAttendanceLog) {
+        const log = activityLog;
+        if (log?.participantStatus && log.participantStatus !== 'WAJIB_HADIR') return false;
+        // Jika log.includedInRaport === false secara eksplisit, skip
+        if (log?.includedInRaport === false) return false;
+      }
+      
+      // Agenda lama tanpa kategori tetap masuk raport keseluruhan bila peserta
+      // wajib/log valid, tetapi tidak dapat dipetakan ke raport AKD tertentu.
+      if (!activity.category) return categoryFilter === 'ALL';
       const activityIsParipurna = isParipurna(activity.category);
       const matchesSelectedCategory = categoryFilter === 'ALL' || matchAKDCategory(activity.category, categoryFilter);
-      return matchesSelectedCategory && (activityIsParipurna || matchesMemberAKD(activity.category));
+      return matchesSelectedCategory && (
+        categoryFilter === 'ALL'
+          ? isMandatoryParticipant || isCountableLog || activityIsParipurna || matchesMemberAKD(activity.category)
+          : (activityIsParipurna || matchesMemberAKD(activity.category))
+      );
     });
 
       if (activityFilter !== 'ALL') relevantActivities = relevantActivities.filter(activity => activity.id === activityFilter);
@@ -792,6 +837,7 @@ export function AttendanceProvider({ children }) {
       const newLog = {
         id: `ATT-${Date.now()}`,
         activityId,
+        agendaId: activityId,
         roomId: activity.roomId || null,
         roomName: activity.roomName || activity.locationName || '',
         participantType: 'INTERNAL',
@@ -799,6 +845,7 @@ export function AttendanceProvider({ children }) {
         participantStatus,
         includedInRaport: !isPersonnel && participantStatus === 'WAJIB_HADIR',
         memberId,
+        participantId: memberId,
         memberName: member.name,
         memberFraksi: member.fraksi || '',
         memberKomisi: member.komisi || '',
@@ -824,7 +871,20 @@ export function AttendanceProvider({ children }) {
         note: note || diffNote || `Absensi ${calculatedStatus}`
       };
 
-      // Simpan log ke state lokal & broadcast ke tab lain
+      const remoteWriteResult = await safeDbWrite(
+        async () => {
+          await setDoc(doc(db, COL.LOGS, newLog.id), { ...newLog, createdAt: serverTimestamp() }, { merge: true });
+          await waitForPendingWrites(db);
+        },
+        5000,
+        'Absensi gagal disimpan ke Firestore. Periksa koneksi dan hak akses akun.'
+      );
+      if (!remoteWriteResult.ok) {
+        setSyncStatus('offline');
+        return { success: false, message: remoteWriteResult.message };
+      }
+      setSyncStatus('synced');
+
       setLogs(prev => {
         const nextLogs = [newLog, ...prev.filter(l => !(l.activityId === activityId && l.memberId === memberId))];
         try {
@@ -836,20 +896,6 @@ export function AttendanceProvider({ children }) {
         return nextLogs;
       });
 
-      let remoteWriteResult = { ok: true, timedOut: false };
-      try {
-        remoteWriteResult = await safeDbWrite(
-          () => setDoc(doc(db, COL.LOGS, newLog.id), {
-            ...newLog,
-            createdAt: serverTimestamp(),
-          }, { merge: true }),
-          1500,
-          'Koneksi ke server gagal saat menyimpan absensi. Data sudah tersimpan di perangkat dan akan disinkronisasi saat koneksi tersedia.'
-        );
-      } catch (e) {
-        console.warn('Firestore write warning (offline fallback active):', e);
-      }
-
       void logAudit({
         action: 'ATTENDANCE_RECORDED',
         details: `${previousLog ? `Perubahan status ${previousLog.status || 'Belum Hadir'} menjadi ${calculatedStatus}` : `Presensi baru [${calculatedStatus}]`} untuk ${member.name} pada agenda "${activity.title}" via ${method}${note ? ` — Alasan: ${note}` : ''}. Sebelum: ${previousLog?.status || 'Belum ada'}; Sesudah: ${calculatedStatus}`,
@@ -859,7 +905,6 @@ export function AttendanceProvider({ children }) {
       return {
         success: true,
         log: newLog,
-        warning: remoteWriteResult?.timedOut ? remoteWriteResult.message : null,
       };
     } catch (err) {
       return { success: false, message: err.message };
@@ -938,6 +983,8 @@ export function AttendanceProvider({ children }) {
       });
       const updatedLog = {
         ...existingLog,
+        agendaId: existingLog.agendaId || activityId,
+        participantId: existingLog.participantId || existingLog.memberId || existingLog.guestId,
         checkOutAt: checkOutAt.toISOString(),
         durationMinutes,
         checkoutStatus,
@@ -949,17 +996,22 @@ export function AttendanceProvider({ children }) {
         status: existingLog.status || 'On Time',
       };
 
+      const remoteWriteResult = await safeDbWrite(
+        async () => {
+          await setDoc(doc(db, COL.LOGS, existingLog.id), { ...updatedLog, updatedAt: serverTimestamp() }, { merge: true });
+          await waitForPendingWrites(db);
+        },
+        5000,
+        'Check-out gagal disimpan ke Firestore. Periksa koneksi dan hak akses akun.'
+      );
+      if (!remoteWriteResult.ok) {
+        setSyncStatus('offline');
+        return { success: false, message: remoteWriteResult.message };
+      }
+      setSyncStatus('synced');
       setLogs(previous => previous.map(log => log.id === existingLog.id ? updatedLog : log));
-      let remoteWriteResult = { ok: true, timedOut: false };
-      try {
-        remoteWriteResult = await safeDbWrite(
-          () => setDoc(doc(db, COL.LOGS, existingLog.id), { ...updatedLog, updatedAt: serverTimestamp() }, { merge: true }),
-          1500,
-          'Koneksi ke server gagal saat menyimpan check-out. Data sudah dicatat di perangkat dan akan disinkronisasi saat koneksi tersedia.'
-        );
-      } catch (e) { console.warn('Firestore checkout warning:', e); }
       void logAudit({ action: 'ATTENDANCE_CHECKOUT', details: `Check-out ${attendeeName} pada agenda ${activity.title}: ${checkoutStatus}, durasi ${durationMinutes} menit. Sebelum: check-in ${existingLog.checkInAt || existingLog.timestamp}, status ${existingLog.status || '-'}; Sesudah: check-out ${updatedLog.checkOutAt}, status ${checkoutStatus}${anomalies.length ? `; ANOMALI: ${anomalies.join(', ')}` : ''}`, method });
-      return { success: true, log: updatedLog, warning: remoteWriteResult?.timedOut ? remoteWriteResult.message : null };
+      return { success: true, log: updatedLog };
     } catch (err) {
       return { success: false, message: err.message };
     }
@@ -1046,6 +1098,7 @@ export function AttendanceProvider({ children }) {
       const newLog = {
         id: `ATT-GST-${Date.now()}`,
         activityId,
+        agendaId: activityId,
         roomId: activity.roomId || null,
         roomName: activity.roomName || activity.locationName || '',
         participantType: 'EXTERNAL',
@@ -1053,6 +1106,7 @@ export function AttendanceProvider({ children }) {
         participantStatus: 'EXTERNAL',
         includedInRaport: false,
         guestId: currentGuestId,
+        participantId: currentGuestId,
         agency,
         guestAgency: agency,
         invitedName: invitedName || 'Pejabat Terkait',
@@ -1075,6 +1129,20 @@ export function AttendanceProvider({ children }) {
         note: note || (isRepresented ? `Dihadiri oleh perwakilan: ${representativeName} (${representativePosition})` : 'Hadir langsung')
       };
 
+      const remoteWriteResult = await safeDbWrite(
+        async () => {
+          await setDoc(doc(db, COL.LOGS, newLog.id), { ...newLog, createdAt: serverTimestamp() }, { merge: true });
+          await waitForPendingWrites(db);
+        },
+        5000,
+        'Absensi tamu gagal disimpan ke Firestore. Periksa koneksi dan hak akses akun.'
+      );
+      if (!remoteWriteResult.ok) {
+        setSyncStatus('offline');
+        return { success: false, message: remoteWriteResult.message };
+      }
+      setSyncStatus('synced');
+
       setLogs(prev => {
         const nextLogs = [newLog, ...prev.filter(l => !(l.activityId === activityId && l.guestId === currentGuestId))];
         try {
@@ -1086,20 +1154,6 @@ export function AttendanceProvider({ children }) {
         return nextLogs;
       });
 
-      let remoteWriteResult = { ok: true, timedOut: false };
-      try {
-        remoteWriteResult = await safeDbWrite(
-          () => setDoc(doc(db, COL.LOGS, newLog.id), {
-            ...newLog,
-            createdAt: serverTimestamp(),
-          }, { merge: true }),
-          1500,
-          'Koneksi ke server gagal saat menyimpan absensi tamu. Data sudah tersimpan di perangkat dan akan disinkronisasi saat koneksi tersedia.'
-        );
-      } catch (e) {
-        console.warn('Firestore guest write warning (offline fallback active):', e);
-      }
-
       void logAudit({
         action: 'GUEST_CHECKIN',
         details: `Check-in Tamu Eksternal [${agency}] - ${isRepresented ? `Diwakili: ${representativeName}` : invitedName} pada "${activity.title}"`,
@@ -1109,7 +1163,6 @@ export function AttendanceProvider({ children }) {
       return {
         success: true,
         log: newLog,
-        warning: remoteWriteResult?.timedOut ? remoteWriteResult.message : null,
       };
     } catch (err) {
       return { success: false, message: err.message };
@@ -1455,9 +1508,10 @@ export function AttendanceProvider({ children }) {
       }
 
       const generatedId = `DPRD-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+      const { username, password, ...memberProfileData } = memberData;
       const newMember = {
         id: generatedId,
-        ...memberData,
+        ...memberProfileData,
         photo: photoUrl,
         qrToken: `QR-${generatedId}-${(memberData.name || '').replace(/\s+/g, '-').toUpperCase()}`,
         statusActive: true,
@@ -1472,6 +1526,29 @@ export function AttendanceProvider({ children }) {
           updatedAt: serverTimestamp(),
         });
       } catch (e) { /* fallback offline */ }
+
+      let accountId = null;
+      if (memberData.username || memberData.password) {
+        if (!memberData.username || !memberData.password) {
+          return { success: false, message: 'Username dan password login harus diisi bersama.' };
+        }
+        if (import.meta.env.VITE_AUTH_MODE === 'local') {
+          return { success: false, message: 'Pembuatan akun anggota memerlukan mode Firestore, bukan mode local testing.' };
+        }
+
+        accountId = await createAccount({
+          username: memberData.username,
+          password: memberData.password,
+          fullName: newMember.name,
+          role: ACCOUNT_ROLES.MEMBER,
+          status: memberData.statusActive === false ? ACCOUNT_STATUS.INACTIVE : ACCOUNT_STATUS.ACTIVE,
+          memberId: generatedId,
+          department: newMember.fraksi,
+          notes: 'Akun dibuat dari Data Anggota DPRD'
+        }, currentUser?.accountId);
+        setMembers(prev => prev.map(item => item.id === generatedId ? { ...item, accountId } : item));
+        await updateDoc(doc(db, COL.MEMBERS, generatedId), { accountId, updatedAt: serverTimestamp() });
+      }
 
       await logAudit({
         action: 'ADD_MEMBER',
@@ -1493,7 +1570,25 @@ export function AttendanceProvider({ children }) {
       }
 
       const cleanData = { ...updateData };
+      const requestedPassword = cleanData.password;
+      delete cleanData.password;
+      delete cleanData.username;
       if (photoUrl !== undefined) cleanData.photo = photoUrl;
+
+      if (requestedPassword) {
+        return { success: false, message: 'Password akun yang sudah ada harus direset melalui Firebase Authentication.' };
+      }
+
+      const existingMember = getMemberById(memberId);
+      if (existingMember?.accountId) {
+        await updateAccount(existingMember.accountId, {
+          status: cleanData.statusActive === false ? ACCOUNT_STATUS.INACTIVE : ACCOUNT_STATUS.ACTIVE,
+          fullName: cleanData.name,
+          memberId,
+          department: cleanData.fraksi,
+          notes: 'Sinkronisasi dari Data Anggota DPRD'
+        }, currentUser?.accountId);
+      }
 
       setMembers(prev => prev.map(m => m.id === memberId ? { ...m, ...cleanData } : m));
 
@@ -1850,7 +1945,7 @@ export function AttendanceProvider({ children }) {
       rooms,
       scoreSettings, updateScoreSettings, reportSigners, saveReportSigner, deleteReportSigner,
       loading, currentUser, login, logout,
-      currentRole, setCurrentRole,
+      currentRole,
       activeMemberId, setActiveMemberId,
       canManageMembers, isAdmin, isBK,
       getMemberById, getPersonnelById, getParticipantById, getMemberByQR, getActivityById, getActivityByQR, getMemberRaport,

@@ -42,18 +42,26 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
 
   // Filter activities up to selectedMaxMonth
   const memberAKDs = getMemberAKDs(member);
+  const memberLogs = logs.filter(l => l.memberId === memberId && l.participantType !== 'EXTERNAL');
+
   const filteredActivities = activities.filter(act => {
     if (selectedMaxMonth === 'ALL') return true;
     if (!act.date) return true;
     const m = new Date(act.date).getMonth() + 1;
     return m <= parseInt(selectedMaxMonth, 10);
   }).filter(act => {
-    if (!Array.isArray(act.participantMemberIds) || !act.participantMemberIds.includes(memberId)) return false;
+    const activityLog = memberLogs.find(log => (log.activityId || log.agendaId) === act.id);
+    const isMandatoryParticipant = Array.isArray(act.participantMemberIds) &&
+      act.participantMemberIds.includes(memberId) &&
+      (act.participantStatuses?.[memberId] || 'WAJIB_HADIR') === 'WAJIB_HADIR';
+    const isCountableLog = Boolean(activityLog) &&
+      activityLog.includedInRaport !== false &&
+      (!activityLog.participantStatus || activityLog.participantStatus === 'WAJIB_HADIR');
+    if (!isMandatoryParticipant && !isCountableLog) return false;
     if (act.participantStatuses?.[memberId] && act.participantStatuses[memberId] !== 'WAJIB_HADIR') return false;
-    return /paripurna/i.test(act.category || '') || memberAKDs.some(akd => matchAKDCategory(akd, act.category));
+    if (reportType === 'AVERAGE') return true;
+    return !act.category || /paripurna/i.test(act.category) || memberAKDs.some(akd => matchAKDCategory(akd, act.category));
   });
-
-  const memberLogs = logs.filter(l => l.memberId === memberId);
 
   const visibleCategories = reportType === 'AVERAGE'
     ? ['Keseluruhan Agenda Wajib']
