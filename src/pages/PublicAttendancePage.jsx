@@ -24,7 +24,7 @@ try {
   dprdLogo = new URL('../logo.png', import.meta.url).href;
 } catch (e) {}
 
-export default function PublicAttendancePage({ initialActivityId, onBackToApp, publicGuest = false }) {
+export default function PublicAttendancePage({ initialActivityId, onBackToApp, publicGuest = false, pageType = 'MEMBER', memberOnly = false }) {
   const {
     activities,
     members,
@@ -34,15 +34,16 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
     checkoutAttendance,
     recordGuestAttendance,
     scoreSettings,
+    currentUser,
     loading: ctxLoading
   } = useAttendance();
 
   // ────── State ──────
   const [selectedActivityId, setSelectedActivityId] = useState(initialActivityId || '');
-  const [participantType, setParticipantType] = useState(() => publicGuest || new URLSearchParams(window.location.search).get('type') === 'opd' ? 'EXTERNAL' : 'INTERNAL');
+  const [participantType, setParticipantType] = useState(() => pageType === 'OPD' ? 'EXTERNAL' : 'INTERNAL');
 
   // Form Anggota DPRD
-  const [selectedMemberId, setSelectedMemberId] = useState('');
+  const [selectedMemberId, setSelectedMemberId] = useState(() => currentUser?.memberId || '');
   const [memberSearch, setMemberSearch] = useState('');
   const [invitationToken] = useState(() => new URLSearchParams(window.location.search).get('token') || '');
   const [invitationGuestId] = useState(() => new URLSearchParams(window.location.search).get('guestId') || null);
@@ -111,12 +112,16 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
   // QR undangan individual membawa token ACTIVITY_TOKEN:MEMBER_ID.
   // Anggota langsung dipilih, tetapi tetap harus mengonfirmasi sebelum absen.
   useEffect(() => {
+    if (memberOnly) {
+      setSelectedMemberId(currentUser?.memberId || '');
+      return;
+    }
     const token = new URLSearchParams(window.location.search).get('token') || '';
     const memberId = token.includes(':') ? token.slice(token.lastIndexOf(':') + 1) : '';
     if (memberId && members.some(member => member.id === memberId)) {
       setSelectedMemberId(memberId);
     }
-  }, [members]);
+  }, [members, memberOnly, currentUser?.memberId]);
 
   // Auto-fetch GPS
   useEffect(() => {
@@ -173,7 +178,9 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
     : { status: 'Hadir', message: 'Tepat Waktu', isExpired: false, isLate: false };
 
   const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
-  const participantMembers = [...members, ...personnel].filter(member => participantIds.includes(member.id));
+  const participantMembers = [...members, ...personnel].filter(member =>
+    participantIds.includes(member.id) && (!memberOnly || member.id === currentUser?.memberId)
+  );
   const filteredMembers = participantMembers.filter(m =>
     !memberSearch ||
     m.name?.toLowerCase().includes(memberSearch.toLowerCase()) ||
@@ -563,7 +570,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
             <form onSubmit={handleCheckIn} className="p-4 sm:p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4 text-xs">
               
               {/* Toggle Tipe Peserta */}
-              {!publicGuest && <div className="flex rounded-2xl bg-slate-800 p-1 border border-slate-700">
+              {pageType === 'MEMBER' && <div className="flex rounded-2xl bg-slate-800 p-1 border border-slate-700">
                 <button
                   type="button"
                   onClick={() => setParticipantType('INTERNAL')}
@@ -593,9 +600,9 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
               {/* ── Form Internal: Anggota DPRD ── */}
               {participantType === 'INTERNAL' ? (
                 <div className="space-y-3">
-                  <label className="block font-bold text-slate-300">Pilih Identitas Anggota Dewan:</label>
+                  <label className="block font-bold text-slate-300">{memberOnly ? 'Identitas Anggota yang Login:' : 'Pilih Identitas Anggota Dewan:'}</label>
                   
-                  <div className="relative">
+                  {!memberOnly && <div className="relative">
                     <input
                       type="text"
                       placeholder="🔍 Cari nama atau fraksi..."
@@ -603,7 +610,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
                       onChange={e => setMemberSearch(e.target.value)}
                       className="w-full p-2.5 pl-3 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs focus:border-emerald-500 outline-none transition"
                     />
-                  </div>
+                  </div>}
 
                   <div className="max-h-52 overflow-y-auto space-y-1.5 rounded-2xl border border-slate-800 bg-slate-950/40 p-2">
                     {filteredMembers.length === 0 ? (

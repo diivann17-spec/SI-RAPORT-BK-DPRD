@@ -124,7 +124,7 @@ export default function ActivityQRModal({ isOpen, onClose, activity }) {
   const qrBase = effectiveLanIp
     ? `${protocol}//${effectiveLanIp}${activePortStr}`
     : `${protocol}//${hostname}${activePortStr}`;
-  const qrValue = `${qrBase}${pathname.replace(/\/$/, '')}?absen=${activity.id}&token=${encodeURIComponent(activity.qrToken || activity.id)}`;
+  const qrValue = `${qrBase}${pathname.replace(/\/$/, '')}?absen=${activity.id}&type=agenda&token=${encodeURIComponent(activity.qrToken || activity.id)}`;
   const needsLanIp = isLocalhost && !effectiveLanIp;
 
   const handleSaveLanIp = () => {

@@ -17,7 +17,8 @@ import AuditLogs from './pages/AuditLogs';
 import Settings from './pages/Settings';
 import RoomList from './pages/RoomList';
 import Login from './pages/Login';
-import PublicAttendancePage from './pages/PublicAttendancePage';
+import PublicMemberAttendancePage from './pages/PublicMemberAttendancePage';
+import PublicOpdAttendancePage from './pages/PublicOpdAttendancePage';
 import InvitationCenter from './pages/InvitationCenter';
 import ReportCenter from './pages/ReportCenter';
 import CalendarAgenda from './pages/CalendarAgenda';
@@ -46,6 +47,7 @@ function AppInner() {
       return null;
     }
   });
+  const [scanType] = useState(() => new URLSearchParams(window.location.search).get('type') || 'agenda');
 
   // Sinkronisasi activeTab otomatis sesuai hak akses / role saat login
   useEffect(() => {
@@ -61,10 +63,10 @@ function AppInner() {
   }, [currentUser, currentRole]);
 
   useEffect(() => {
-    if (!authReady || !scannedActivityId || currentUser || publicGuestRequested) return;
+    if (!authReady || !scannedActivityId || !['opd', 'agenda'].includes(scanType) || currentUser || publicGuestRequested) return;
     setPublicGuestRequested(true);
     authService.enterPublicGuest().catch(() => setPublicGuestRequested(false));
-  }, [authReady, scannedActivityId, currentUser, publicGuestRequested]);
+  }, [authReady, scannedActivityId, scanType, currentUser, publicGuestRequested]);
 
   if (!authReady) {
     return (
@@ -80,7 +82,10 @@ function AppInner() {
 
   // QR Agenda tetap menggunakan sesi Firebase agar rules dapat memverifikasi pemilik absensi.
   if (scannedActivityId) {
-    if (!currentUser) {
+    if (scanType === 'member' && !currentUser) {
+      return <Login isQrAttendance={true} />;
+    }
+    if (['opd', 'agenda'].includes(scanType) && !currentUser) {
       return (
         <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
           <div className="text-center space-y-3"><Loader2 className="w-8 h-8 mx-auto animate-spin text-emerald-400" /><p className="text-sm font-semibold">Menyiapkan absensi tamu OPD...</p></div>
@@ -88,11 +93,18 @@ function AppInner() {
       );
     }
     return (
-      <PublicAttendancePage
+      (scanType === 'opd' || (scanType === 'agenda' && currentRole !== 'ANGGOTA_DPRD')) ? <PublicOpdAttendancePage
         initialActivityId={scannedActivityId}
         publicGuest={currentRole === 'PUBLIC_GUEST'}
         onBackToApp={() => {
           // Bersihkan query param dari URL
+          window.history.replaceState({}, '', window.location.pathname);
+          setScannedActivityId(null);
+        }}
+      /> : <PublicMemberAttendancePage
+        initialActivityId={scannedActivityId}
+        memberOnly
+        onBackToApp={() => {
           window.history.replaceState({}, '', window.location.pathname);
           setScannedActivityId(null);
         }}
