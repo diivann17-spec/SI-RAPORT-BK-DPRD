@@ -423,7 +423,9 @@ export function AttendanceProvider({ children }) {
       }, err => console.warn('Firestore activities fallback:', err.message)));
 
       // 3. Listen Attendance Logs (Cross-Device Realtime Sync)
-      const logsQuery = currentRole === 'ANGGOTA_DPRD' && currentUser.memberId
+      const logsQuery = currentRole === 'PUBLIC_GUEST'
+        ? query(collection(db, COL.LOGS), where('participantType', '==', 'EXTERNAL'))
+        : currentRole === 'ANGGOTA_DPRD' && currentUser.memberId
         ? query(collection(db, COL.LOGS), where('memberId', '==', currentUser.memberId))
         : collection(db, COL.LOGS);
       unsubs.push(onSnapshot(logsQuery, (snap) => {
@@ -1109,6 +1111,7 @@ export function AttendanceProvider({ children }) {
         includedInRaport: false,
         guestId: currentGuestId,
         participantId: currentGuestId,
+        invitationToken,
         agency,
         guestAgency: agency,
         invitedName: invitedName || 'Pejabat Terkait',

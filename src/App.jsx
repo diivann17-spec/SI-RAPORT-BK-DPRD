@@ -26,10 +26,12 @@ import NotificationCenter from './pages/NotificationCenter';
 import AccountManagement from './pages/AccountManagement';
 import SplashScreen from './components/SplashScreen';
 import { Loader2 } from 'lucide-react';
+import { authService } from './firebase/authService';
 
 // Inner app mengakses context
 function AppInner() {
   const { loading, authReady, currentUser, currentRole } = useAttendance();
+  const [publicGuestRequested, setPublicGuestRequested] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(
     () => (currentRole === 'ANGGOTA_DPRD' ? 'member_portal' : 'dashboard')
@@ -58,6 +60,12 @@ function AppInner() {
     }
   }, [currentUser, currentRole]);
 
+  useEffect(() => {
+    if (!authReady || !scannedActivityId || currentUser || publicGuestRequested) return;
+    setPublicGuestRequested(true);
+    authService.enterPublicGuest().catch(() => setPublicGuestRequested(false));
+  }, [authReady, scannedActivityId, currentUser, publicGuestRequested]);
+
   if (!authReady) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
@@ -73,11 +81,16 @@ function AppInner() {
   // QR Agenda tetap menggunakan sesi Firebase agar rules dapat memverifikasi pemilik absensi.
   if (scannedActivityId) {
     if (!currentUser) {
-      return <Login isQrAttendance={true} />;
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
+          <div className="text-center space-y-3"><Loader2 className="w-8 h-8 mx-auto animate-spin text-emerald-400" /><p className="text-sm font-semibold">Menyiapkan absensi tamu OPD...</p></div>
+        </div>
+      );
     }
     return (
       <PublicAttendancePage
         initialActivityId={scannedActivityId}
+        publicGuest={currentRole === 'PUBLIC_GUEST'}
         onBackToApp={() => {
           // Bersihkan query param dari URL
           window.history.replaceState({}, '', window.location.pathname);

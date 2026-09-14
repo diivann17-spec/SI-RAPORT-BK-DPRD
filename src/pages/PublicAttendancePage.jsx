@@ -24,7 +24,7 @@ try {
   dprdLogo = new URL('../logo.png', import.meta.url).href;
 } catch (e) {}
 
-export default function PublicAttendancePage({ initialActivityId, onBackToApp }) {
+export default function PublicAttendancePage({ initialActivityId, onBackToApp, publicGuest = false }) {
   const {
     activities,
     members,
@@ -39,7 +39,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
 
   // ────── State ──────
   const [selectedActivityId, setSelectedActivityId] = useState(initialActivityId || '');
-  const [participantType, setParticipantType] = useState(() => new URLSearchParams(window.location.search).get('type') === 'opd' ? 'EXTERNAL' : 'INTERNAL');
+  const [participantType, setParticipantType] = useState(() => publicGuest || new URLSearchParams(window.location.search).get('type') === 'opd' ? 'EXTERNAL' : 'INTERNAL');
 
   // Form Anggota DPRD
   const [selectedMemberId, setSelectedMemberId] = useState('');
@@ -563,7 +563,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
             <form onSubmit={handleCheckIn} className="p-4 sm:p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4 text-xs">
               
               {/* Toggle Tipe Peserta */}
-              <div className="flex rounded-2xl bg-slate-800 p-1 border border-slate-700">
+              {!publicGuest && <div className="flex rounded-2xl bg-slate-800 p-1 border border-slate-700">
                 <button
                   type="button"
                   onClick={() => setParticipantType('INTERNAL')}
@@ -588,7 +588,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
                   <Building2 className="w-4 h-4" />
                   <span>Tamu OPD / Instansi</span>
                 </button>
-              </div>
+              </div>}
 
               {/* ── Form Internal: Anggota DPRD ── */}
               {participantType === 'INTERNAL' ? (

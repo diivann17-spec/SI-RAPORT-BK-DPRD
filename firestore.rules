@@ -7,6 +7,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/accounts/$(request.auth.uid);
     }
 
+    function activityPath(activityId) {
+      return /databases/$(database)/documents/activities/$(activityId);
+    }
+
     function signedIn() {
       return request.auth != null;
     }
@@ -33,6 +37,37 @@ service cloud.firestore {
 
     function isScanOperator() {
       return hasRole('PETUGAS_SCAN');
+    }
+
+    function isPublicGuest() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    function hasAttendanceIdentityFields() {
+      return request.resource.data.keys().hasAll([
+        'activityId',
+        'agendaId',
+        'participantId',
+        'participantType'
+      ]) &&
+      request.resource.data.activityId is string &&
+      request.resource.data.agendaId == request.resource.data.activityId &&
+      request.resource.data.participantId is string;
+    }
+
+    function canCreateStaffAttendance() {
+      return (isAdmin() || isBK() || isScanOperator() ||
+        (activeAccount() && get(accountPath()).data.memberId == request.resource.data.memberId)) &&
+        hasAttendanceIdentityFields() &&
+        (request.resource.data.participantType == 'EXTERNAL' ||
+          request.resource.data.memberId == request.resource.data.participantId);
+    }
+
+    function canCreatePublicGuestAttendance() {
+      return isPublicGuest() &&
+        hasAttendanceIdentityFields() &&
+        request.resource.data.participantType == 'EXTERNAL' &&
+        request.resource.data.invitationToken == get(activityPath(request.resource.data.activityId)).data.qrToken;
     }
 
     function isAdminOrBK() {
@@ -134,7 +169,7 @@ service cloud.firestore {
 
     // ─── ACTIVITIES ─────────────────────────────────────────────────────────
     match /activities/{activityId} {
-      allow read: if activeAccount();
+      allow read: if activeAccount() || isPublicGuest();
       allow create: if isAdminOrBK();
       allow update: if isAdmin() ||
         (isBK() && resource.data.createdBy == request.auth.uid);
@@ -152,21 +187,18 @@ service cloud.firestore {
       // Admin & BK bisa baca semua log; Anggota hanya baca log miliknya sendiri;
       // PETUGAS_SCAN bisa baca semua log (untuk validasi duplikat saat scan)
       allow list: if isAdminOrBK() || isScanOperator() ||
+        (isPublicGuest() && resource.data.participantType == 'EXTERNAL') ||
         (activeAccount() && resource.data.memberId == get(accountPath()).data.memberId);
       allow get: if isAdminOrBK() || isScanOperator() ||
+        (isPublicGuest() && resource.data.participantType == 'EXTERNAL') ||
         (activeAccount() &&
          get(accountPath()).data.memberId == resource.data.memberId);
       // Anggota hanya boleh mencatat dirinya sendiri; operator dapat mencatat peserta.
-      allow create: if (isAdmin() || isBK() || isScanOperator() ||
-        (activeAccount() && get(accountPath()).data.memberId == request.resource.data.memberId)) &&
-        request.resource.data.keys().hasAll(['activityId', 'agendaId', 'participantId', 'participantType']) &&
-        request.resource.data.activityId is string &&
-        request.resource.data.agendaId == request.resource.data.activityId &&
-        request.resource.data.participantId is string &&
-        (request.resource.data.participantType == 'EXTERNAL' ||
-          request.resource.data.memberId == request.resource.data.participantId);
+      allow create: if canCreateStaffAttendance() || canCreatePublicGuestAttendance();
       // Check-out adalah update pada log yang sama dan dapat dilakukan oleh pemilik atau operator.
       allow update: if isAdminOrBK() || isScanOperator() ||
+        (isPublicGuest() && resource.data.participantType == 'EXTERNAL' &&
+          request.resource.data.invitationToken == resource.data.invitationToken) ||
         (activeAccount() && get(accountPath()).data.memberId == resource.data.memberId &&
           request.resource.data.memberId == resource.data.memberId);
       allow delete: if isAdmin();

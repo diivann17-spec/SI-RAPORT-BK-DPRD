@@ -12,7 +12,7 @@
  * - Protected access untuk sensitive operations
  */
 
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut, signInAnonymously } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './config';
 import { validateLoginWithWhitelist } from './accountService';
@@ -145,6 +145,17 @@ class AuthenticationService {
         }
 
         try {
+          if (firebaseUser.isAnonymous) {
+            this.currentSession = this.createSession({
+              id: firebaseUser.uid,
+              uid: firebaseUser.uid,
+              fullName: 'Tamu OPD',
+              role: 'PUBLIC_GUEST',
+              status: 'ACTIVE'
+            });
+            this.notifyListeners();
+            return;
+          }
           const accountSnapshot = await getDoc(doc(db, 'accounts', firebaseUser.uid));
           if (!accountSnapshot.exists() || accountSnapshot.data().status !== 'ACTIVE') {
             await signOut(auth);
@@ -254,6 +265,12 @@ class AuthenticationService {
         session: null
       };
     }
+  }
+
+  async enterPublicGuest() {
+    if (isLocalAuthMode) return false;
+    await signInAnonymously(auth);
+    return true;
   }
 
   /**
