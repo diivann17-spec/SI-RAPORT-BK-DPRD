@@ -93,9 +93,9 @@ function AppInner() {
             <h1 className="text-xl font-black">Absensi Agenda</h1>
             <p className="mt-2 text-sm text-slate-400">Pilih jenis peserta untuk melanjutkan absensi.</p>
             <div className="mt-6 grid gap-3">
-              <button type="button" onClick={() => setAgendaEntryChoice('member')} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500">
+              <button type="button" onClick={() => { setAgendaEntryChoice('member'); setPublicGuestRequested(true); authService.enterPublicGuest().catch(() => setPublicGuestRequested(false)); }} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500">
                 Anggota DPRD
-                <span className="mt-1 block text-[11px] font-normal text-emerald-100">Login untuk absensi pribadi</span>
+                <span className="mt-1 block text-[11px] font-normal text-emerald-100">Pilih anggota peserta agenda</span>
               </button>
               <button type="button" onClick={() => { setAgendaEntryChoice('opd'); setPublicGuestRequested(true); authService.enterPublicGuest().catch(() => setPublicGuestRequested(false)); }} className="rounded-2xl bg-teal-700 px-4 py-3 text-sm font-black text-white hover:bg-teal-600">
                 Tamu OPD / Instansi
@@ -106,10 +106,7 @@ function AppInner() {
         </div>
       );
     }
-    if ((scanType === 'member' || agendaEntryChoice === 'member') && !currentUser) {
-      return <Login isQrAttendance={true} />;
-    }
-    if ((scanType === 'opd' || agendaEntryChoice === 'opd') && !currentUser) {
+    if (['opd', 'agenda'].includes(scanType) && !currentUser) {
       return (
         <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
           <div className="text-center space-y-3"><Loader2 className="w-8 h-8 mx-auto animate-spin text-emerald-400" /><p className="text-sm font-semibold">Menyiapkan absensi tamu OPD...</p></div>
@@ -117,7 +114,7 @@ function AppInner() {
       );
     }
     return (
-      (scanType === 'opd' || agendaEntryChoice === 'opd' || (scanType === 'agenda' && currentRole !== 'ANGGOTA_DPRD')) ? <PublicOpdAttendancePage
+      (scanType === 'opd' || agendaEntryChoice === 'opd') ? <PublicOpdAttendancePage
         initialActivityId={scannedActivityId}
         publicGuest={currentRole === 'PUBLIC_GUEST'}
         onBackToApp={() => {
@@ -127,7 +124,7 @@ function AppInner() {
         }}
       /> : <PublicMemberAttendancePage
         initialActivityId={scannedActivityId}
-        memberOnly
+        memberOnly={currentRole === 'ANGGOTA_DPRD'}
         onBackToApp={() => {
           window.history.replaceState({}, '', window.location.pathname);
           setScannedActivityId(null);

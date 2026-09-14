@@ -782,7 +782,7 @@ export function AttendanceProvider({ children }) {
 
       if (invitationToken) {
         const [activityToken, invitedMemberId] = String(invitationToken).split(':');
-        if (activityToken !== activity.qrToken && activityToken !== activity.id) {
+        if (activityToken !== activity.qrToken) {
           return { success: false, message: 'QR undangan tidak valid untuk kegiatan ini.' };
         }
         if (invitedMemberId && invitedMemberId !== memberId) {

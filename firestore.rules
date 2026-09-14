@@ -67,7 +67,18 @@ service cloud.firestore {
       return isPublicGuest() &&
         hasAttendanceIdentityFields() &&
         request.resource.data.participantType == 'EXTERNAL' &&
-        request.resource.data.invitationToken == get(activityPath(request.resource.data.activityId)).data.qrToken;
+        request.resource.data.invitationToken == get(activityPath(request.resource.data.activityId)).data.qrToken &&
+        get(activityPath(request.resource.data.activityId)).data.status in ['ACTIVE', 'BERLANGSUNG', 'ONGOING', 'IN_PROGRESS'];
+    }
+
+    function canCreatePublicMemberAttendance() {
+      return isPublicGuest() &&
+        hasAttendanceIdentityFields() &&
+        request.resource.data.participantType == 'INTERNAL' &&
+        request.resource.data.memberId == request.resource.data.participantId &&
+        request.resource.data.invitationToken == get(activityPath(request.resource.data.activityId)).data.qrToken &&
+        get(activityPath(request.resource.data.activityId)).data.status in ['ACTIVE', 'BERLANGSUNG', 'ONGOING', 'IN_PROGRESS'] &&
+        request.resource.data.memberId in get(activityPath(request.resource.data.activityId)).data.participantMemberIds;
     }
 
     function isAdminOrBK() {
@@ -155,7 +166,7 @@ service cloud.firestore {
 
     // ─── MEMBERS ────────────────────────────────────────────────────────────
     match /members/{memberId} {
-      allow read: if activeAccount();
+      allow read: if activeAccount() || isPublicGuest();
       allow create, update: if isAdminOrBK();
       allow delete: if isAdmin();
     }
@@ -194,11 +205,14 @@ service cloud.firestore {
         (activeAccount() &&
          get(accountPath()).data.memberId == resource.data.memberId);
       // Anggota hanya boleh mencatat dirinya sendiri; operator dapat mencatat peserta.
-      allow create: if canCreateStaffAttendance() || canCreatePublicGuestAttendance();
+      allow create: if canCreateStaffAttendance() || canCreatePublicGuestAttendance() || canCreatePublicMemberAttendance();
       // Check-out adalah update pada log yang sama dan dapat dilakukan oleh pemilik atau operator.
       allow update: if isAdminOrBK() || isScanOperator() ||
         (isPublicGuest() && resource.data.participantType == 'EXTERNAL' &&
           request.resource.data.invitationToken == resource.data.invitationToken) ||
+        (isPublicGuest() && resource.data.participantType == 'INTERNAL' &&
+          request.resource.data.invitationToken == resource.data.invitationToken &&
+          request.resource.data.memberId == resource.data.memberId) ||
         (activeAccount() && get(accountPath()).data.memberId == resource.data.memberId &&
           request.resource.data.memberId == resource.data.memberId);
       allow delete: if isAdmin();

@@ -293,7 +293,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
         lat: currentLat,
         lng: currentLng,
         distanceMeters: currentDist
-        , invitationToken
+        , invitationToken: invitationToken || selectedActivity.qrToken
       });
     } else {
       if (!agency.trim() || !invitedName.trim() || !position.trim()) {
@@ -317,7 +317,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
         isRepresented,
         representativeName: representativeName.trim(),
         representativePosition: representativePosition.trim(),
-        invitationToken
+        invitationToken: invitationToken || selectedActivity.qrToken
       });
     }
 
