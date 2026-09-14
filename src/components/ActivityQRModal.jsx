@@ -101,8 +101,12 @@ export default function ActivityQRModal({ isOpen, onClose, activity }) {
   const endDateTime = new Date(actDate);
   endDateTime.setHours(endH, endM, 0, 0);
 
-  const isNotStarted = now < startDateTime;
-  const isExpired = now > endDateTime;
+  const activityStatus = String(activity.status || 'ACTIVE').trim().toUpperCase();
+  const isCancelled = ['CANCELLED', 'CANCELED', 'DIBATALKAN'].includes(activityStatus);
+  const isScheduled = ['SCHEDULED', 'TERJADWAL', 'PLANNED'].includes(activityStatus);
+  const isCompleted = ['COMPLETED', 'FINISHED', 'SELESAI'].includes(activityStatus);
+  const isNotStarted = isScheduled || now < startDateTime;
+  const isExpired = isCancelled || isCompleted || now > endDateTime;
   const isLateWindow = now > toleranceDateTime && now <= endDateTime;
   const isOntimeWindow = now >= startDateTime && now <= toleranceDateTime;
 
@@ -248,7 +252,7 @@ export default function ActivityQRModal({ isOpen, onClose, activity }) {
           <div className="flex flex-wrap items-center justify-center gap-2">
             {isExpired ? (
               <span className="px-3.5 py-1.5 rounded-full text-xs font-black bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1.5">
-                <AlertCircle className="w-4 h-4" /> QR Telah Kedaluwarsa (Agenda Selesai)
+                <AlertCircle className="w-4 h-4" /> {isCancelled ? 'QR Tidak Berlaku (Agenda Dibatalkan)' : 'QR Telah Kedaluwarsa (Agenda Selesai)'}
               </span>
             ) : isLateWindow ? (
               <span className="px-3.5 py-1.5 rounded-full text-xs font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1.5">

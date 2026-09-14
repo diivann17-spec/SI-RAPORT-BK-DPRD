@@ -40,6 +40,33 @@ const getComparableTimestamp = (value) => {
   return String(value);
 };
 
+const getActivityStatusKey = (activity) => String(activity?.status || 'ACTIVE').trim().toUpperCase();
+
+const validateAttendanceActivity = (activity) => {
+  const status = getActivityStatusKey(activity);
+  if (['CANCELLED', 'DIBATALKAN', 'CANCELED'].includes(status)) {
+    return { allowed: false, message: 'Agenda dibatalkan. QR Agenda dan absensi tidak berlaku.' };
+  }
+  if (['COMPLETED', 'SELESAI', 'FINISHED'].includes(status)) {
+    return { allowed: false, message: 'Agenda telah selesai. Absensi otomatis ditutup.' };
+  }
+  if (['SCHEDULED', 'TERJADWAL', 'PLANNED'].includes(status)) {
+    return { allowed: false, message: 'Agenda masih Terjadwal. Absensi hanya dapat dilakukan saat agenda Berlangsung.' };
+  }
+  if (!['ACTIVE', 'BERLANGSUNG', 'ONGOING', 'IN_PROGRESS'].includes(status)) {
+    return { allowed: false, message: 'Agenda belum berstatus Berlangsung. Absensi belum dapat dilakukan.' };
+  }
+  return { allowed: true };
+};
+
+const getAttendanceAnomalies = ({ existingLog, checkInAt, checkOutAt, distanceMeters, radiusMeters }) => {
+  const anomalies = [];
+  if (existingLog?.checkInAt && existingLog?.checkOutAt) anomalies.push('Perubahan data absensi berulang');
+  if (checkInAt && checkOutAt && (checkOutAt - checkInAt) < 2 * 60 * 1000) anomalies.push('Check-in dan check-out terlalu berdekatan');
+  if (Number.isFinite(Number(distanceMeters)) && Number(distanceMeters) > Number(radiusMeters || 150)) anomalies.push('Perubahan lokasi tidak wajar');
+  return anomalies;
+};
+
 const normalizeRole = (role) => {
   const normalized = String(role || '').trim().toLowerCase();
 
@@ -145,7 +172,7 @@ export function AttendanceProvider({ children }) {
     } catch (e) { return DEFAULT_ROOMS; }
   });
   const [scoreSettings, setScoreSettings] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('siraport_score_settings')) || { excellent: 90, good: 80, fair: 70, poor: 60 }; } catch (e) { return { excellent: 90, good: 80, fair: 70, poor: 60 }; }
+    try { return JSON.parse(localStorage.getItem('siraport_score_settings')) || { excellent: 90, good: 80, fair: 70, poor: 60, heavyLateMinutes: 60 }; } catch (e) { return { excellent: 90, good: 80, fair: 70, poor: 60, heavyLateMinutes: 60 }; }
   });
   const [reportSigners, setReportSigners] = useState(() => {
     try { return JSON.parse(localStorage.getItem('siraport_report_signers')) || DEFAULT_SIGNERS; } catch (e) { return DEFAULT_SIGNERS; }
@@ -510,7 +537,7 @@ export function AttendanceProvider({ children }) {
 
   const updateScoreSettings = async (nextSettings) => {
     if (!isAdmin) return { success: false, message: 'Hanya Admin Utama yang dapat mengatur nilai.' };
-    const normalized = Object.fromEntries(Object.entries(nextSettings).map(([key, value]) => [key, Math.max(0, Math.min(100, Number(value) || 0))]));
+    const normalized = Object.fromEntries(Object.entries(nextSettings).map(([key, value]) => [key, Math.max(0, Math.min(key === 'heavyLateMinutes' ? 480 : 100, Number(value) || 0))]));
     setScoreSettings(normalized);
     await logAudit({ action: 'UPDATE_SCORE_SETTINGS', details: `Mengubah ambang nilai disiplin: ${JSON.stringify(normalized)}` });
     return { success: true };
@@ -579,7 +606,7 @@ export function AttendanceProvider({ children }) {
       discipline: { grade: '-', label: 'Belum Ada Data' },
       totalMandatory: 0,
       attendedCount: 0,
-      breakdown: { hadir: 0, terlambat: 0, dinas: 0, izin: 0, sakit: 0, alpa: 0 }
+      breakdown: { hadir: 0, tepatWaktu: 0, terlambat: 0, terlambatBerat: 0, dinas: 0, izin: 0, sakit: 0, alpa: 0 }
     });
     if (!belongsToSelectedAKD) {
       return noData();
@@ -610,7 +637,7 @@ export function AttendanceProvider({ children }) {
     if (relevantActivities.length === 0) return noData();
 
     const total = relevantActivities.length;
-    let score = 0, hadir = 0, terlambat = 0, izin = 0, sakit = 0, dinas = 0, alpa = 0;
+    let score = 0, hadir = 0, tepatWaktu = 0, terlambat = 0, terlambatBerat = 0, izin = 0, sakit = 0, dinas = 0, alpa = 0;
     
     relevantActivities.forEach(act => {
       const log = memberLogs.find(l => l.activityId === act.id);
@@ -620,9 +647,13 @@ export function AttendanceProvider({ children }) {
       } else if (st === 'hadir' || st === 'hadir tepat waktu' || st.includes('on time')) {
         score += 1;
         hadir++;
+        tepatWaktu++;
       } else if (st.includes('terlambat')) {
-        score += 0.8;
-        terlambat++;
+        const isHeavyLate = st.includes('terlambat berat') || /terlambat\s+(lebih dari|di atas|>=?)\s*\d+/.test(st);
+        score += isHeavyLate ? 0.5 : 0.8;
+        hadir++;
+        if (isHeavyLate) terlambatBerat++;
+        else terlambat++;
       } else if (st === 'dinas' || st === 'dinas luar' || st === 'tugas kedinasan') {
         score += 1;
         dinas++;
@@ -644,7 +675,7 @@ export function AttendanceProvider({ children }) {
       discipline: getDisciplineGrade(percentage, scoreSettings),
       totalMandatory: relevantActivities.length,
       attendedCount: Math.round(score * 10) / 10,
-      breakdown: { hadir, terlambat, dinas, izin, sakit, alpa }
+      breakdown: { hadir, tepatWaktu, terlambat, terlambatBerat, dinas, izin, sakit, alpa }
     };
   }, [logs, activities, scoreSettings, getMemberById]);
 
@@ -675,6 +706,14 @@ export function AttendanceProvider({ children }) {
       const previousLog = logs.find(l => l.activityId === activityId && l.memberId === memberId);
       if (!member) return { success: false, message: 'Data peserta internal tidak ditemukan.' };
       if (!activity) return { success: false, message: 'Agenda Kegiatan tidak ditemukan.' };
+      const activityValidation = validateAttendanceActivity(activity);
+      if (!activityValidation.allowed) return { success: false, message: activityValidation.message };
+      if (activity.reportLocked && method !== 'MANUAL_OVERRIDE') {
+        return { success: false, message: 'Periode laporan sudah dikunci. Koreksi hanya dapat dilakukan melalui Absensi Manual dengan alasan resmi.' };
+      }
+      if (activity.reportLocked && method === 'MANUAL_OVERRIDE' && !String(note || '').trim()) {
+        return { success: false, message: 'Alasan koreksi wajib diisi karena periode laporan sudah dikunci.' };
+      }
       const participantStatus = activity.participantStatuses?.[memberId] || 'WAJIB_HADIR';
       if (!['WAJIB_HADIR', 'UNDANGAN', 'OPSIONAL'].includes(participantStatus)) {
         return { success: false, message: 'Status peserta pada agenda tidak valid. Perbarui data peserta terlebih dahulu.' };
@@ -684,7 +723,7 @@ export function AttendanceProvider({ children }) {
           return { success: false, message: 'Absensi GPS ditolak karena data lokasi perangkat tidak valid.' };
         }
         if (!Number.isFinite(Number(distanceMeters)) || Number(distanceMeters) > Number(activity.radiusMeters || 150)) {
-          return { success: false, message: 'Absensi GPS ditolak karena lokasi perangkat berada di luar radius lokasi agenda.' };
+          return { success: false, message: 'Di luar area absensi.' };
         }
       }
       if (Array.isArray(activity.attendanceMethods) && activity.attendanceMethods.length > 0) {
@@ -730,8 +769,8 @@ export function AttendanceProvider({ children }) {
       // Validasi Waktu Otomatis (Belum Dimulai / Dalam Toleransi / Terlambat)
       let calculatedStatus = status;
       let diffNote = '';
-      if (!calculatedStatus || method === 'QR_AGENDA' || method === 'QR_WEBCAM' || method === 'GPS_ONLINE') {
-        const timeCalc = calculateAttendanceStatus(activity, new Date());
+      if (!calculatedStatus || method === 'QR_AGENDA' || method === 'QR_WEBCAM' || method === 'GPS_ONLINE' || method === 'MANUAL_OVERRIDE') {
+        const timeCalc = calculateAttendanceStatus(activity, new Date(), scoreSettings);
         if (timeCalc.isNotStarted && method !== 'MANUAL_OVERRIDE') {
           return {
             success: false,
@@ -749,6 +788,7 @@ export function AttendanceProvider({ children }) {
       }
 
       const isPersonnel = member.type === 'PERSONNEL' || String(memberId).startsWith('PERSONNEL-') || activity.participantTypes?.[memberId] === 'PERSONNEL';
+      const checkInAt = new Date().toISOString();
       const newLog = {
         id: `ATT-${Date.now()}`,
         activityId,
@@ -763,8 +803,8 @@ export function AttendanceProvider({ children }) {
         memberFraksi: member.fraksi || '',
         memberKomisi: member.komisi || '',
         memberAKD: member.akdMemberships || [member.komisi || ''],
-        timestamp: new Date().toISOString(),
-        checkInAt: new Date().toISOString(),
+        timestamp: checkInAt,
+        checkInAt,
         checkOutAt: null,
         durationMinutes: 0,
         checkoutStatus: 'Masih Mengikuti Kegiatan',
@@ -812,7 +852,7 @@ export function AttendanceProvider({ children }) {
 
       void logAudit({
         action: 'ATTENDANCE_RECORDED',
-        details: `${previousLog ? `Perubahan status ${previousLog.status || 'Belum Hadir'} menjadi ${calculatedStatus}` : `Presensi baru [${calculatedStatus}]`} untuk ${member.name} pada agenda "${activity.title}" via ${method}${note ? ` — Alasan: ${note}` : ''}`,
+        details: `${previousLog ? `Perubahan status ${previousLog.status || 'Belum Hadir'} menjadi ${calculatedStatus}` : `Presensi baru [${calculatedStatus}]`} untuk ${member.name} pada agenda "${activity.title}" via ${method}${note ? ` — Alasan: ${note}` : ''}. Sebelum: ${previousLog?.status || 'Belum ada'}; Sesudah: ${calculatedStatus}`,
         method,
       });
 
@@ -843,6 +883,11 @@ export function AttendanceProvider({ children }) {
     try {
       const activity = activities.find(item => item.id === activityId);
       if (!activity) return { success: false, message: 'Agenda tidak ditemukan.' };
+      const activityValidation = validateAttendanceActivity(activity);
+      if (!activityValidation.allowed) return { success: false, message: activityValidation.message };
+      if (activity.reportLocked && method !== 'MANUAL_OVERRIDE') {
+        return { success: false, message: 'Periode laporan sudah dikunci. Check-out koreksi harus dilakukan secara manual dengan alasan resmi.' };
+      }
 
       let existingLog = null;
       if (participantType === 'EXTERNAL') {
@@ -870,7 +915,7 @@ export function AttendanceProvider({ children }) {
           return { success: false, message: 'Check-out GPS ditolak karena data lokasi perangkat tidak valid.' };
         }
         if (!Number.isFinite(Number(distanceMeters)) || Number(distanceMeters) > Number(activity.radiusMeters || 150)) {
-          return { success: false, message: 'Check-out GPS ditolak karena lokasi perangkat berada di luar radius lokasi agenda.' };
+          return { success: false, message: 'Di luar area absensi.' };
         }
       }
 
@@ -883,7 +928,14 @@ export function AttendanceProvider({ children }) {
       const endDate = year && month && day ? new Date(year, month - 1, day, endHour, endMinute, 0) : null;
       const checkoutStatus = endDate && checkOutAt < endDate
         ? `Pulang Lebih Awal – ${Math.max(1, Math.round((endDate - checkOutAt) / 60000))} Menit`
-        : 'Selesai/Normal';
+        : 'Mengikuti Kegiatan Sampai Selesai';
+      const anomalies = getAttendanceAnomalies({
+        existingLog,
+        checkInAt,
+        checkOutAt,
+        distanceMeters,
+        radiusMeters: activity.radiusMeters
+      });
       const updatedLog = {
         ...existingLog,
         checkOutAt: checkOutAt.toISOString(),
@@ -892,6 +944,8 @@ export function AttendanceProvider({ children }) {
         methodCheckout: method,
         checkoutOperatorName: operatorName || currentUser?.name || 'Mandiri',
         checkoutNote: note,
+        anomalyFlags: anomalies,
+        anomalyDetected: anomalies.length > 0,
         status: existingLog.status || 'On Time',
       };
 
@@ -904,7 +958,7 @@ export function AttendanceProvider({ children }) {
           'Koneksi ke server gagal saat menyimpan check-out. Data sudah dicatat di perangkat dan akan disinkronisasi saat koneksi tersedia.'
         );
       } catch (e) { console.warn('Firestore checkout warning:', e); }
-      void logAudit({ action: 'ATTENDANCE_CHECKOUT', details: `Check-out ${attendeeName} pada agenda ${activity.title}: ${checkoutStatus}, durasi ${durationMinutes} menit`, method });
+      void logAudit({ action: 'ATTENDANCE_CHECKOUT', details: `Check-out ${attendeeName} pada agenda ${activity.title}: ${checkoutStatus}, durasi ${durationMinutes} menit. Sebelum: check-in ${existingLog.checkInAt || existingLog.timestamp}, status ${existingLog.status || '-'}; Sesudah: check-out ${updatedLog.checkOutAt}, status ${checkoutStatus}${anomalies.length ? `; ANOMALI: ${anomalies.join(', ')}` : ''}`, method });
       return { success: true, log: updatedLog, warning: remoteWriteResult?.timedOut ? remoteWriteResult.message : null };
     } catch (err) {
       return { success: false, message: err.message };
@@ -931,6 +985,8 @@ export function AttendanceProvider({ children }) {
     try {
       const activity = activities.find(a => a.id === activityId);
       if (!activity) return { success: false, message: 'Agenda kegiatan tidak ditemukan.' };
+      const activityValidation = validateAttendanceActivity(activity);
+      if (!activityValidation.allowed) return { success: false, message: activityValidation.message };
       if (!agency) return { success: false, message: 'Nama Instansi / OPD wajib diisi.' };
 
       if (invitationToken) {
@@ -963,7 +1019,7 @@ export function AttendanceProvider({ children }) {
       }
 
       // Validasi Waktu Otomatis untuk Tamu OPD
-      const timeCalc = calculateAttendanceStatus(activity, new Date());
+      const timeCalc = calculateAttendanceStatus(activity, new Date(), scoreSettings);
       if (timeCalc.isNotStarted) {
         return {
           success: false,

@@ -1,11 +1,27 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import confetti from 'canvas-confetti';
 import { useAttendance } from '../context/AttendanceContext';
 import {
   QrCode, CheckCircle2, AlertCircle, X, Camera,
   ShieldCheck, RefreshCw, Building, Loader2, UserX
 } from 'lucide-react';
+
+const QR_SCANNER_CONFIG = {
+  fps: 30,
+  qrbox: (viewfinderWidth, viewfinderHeight) => {
+    const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+    const qrboxSize = Math.floor(minEdge * 0.88);
+    return { width: qrboxSize, height: qrboxSize };
+  },
+  formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+  experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+  videoConstraints: {
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    frameRate: { ideal: 30, max: 30 }
+  }
+};
 
 export default function QRScannerModal({ isOpen, onClose, selectedActivityId, activityId }) {
   const { members, personnel, activities, logs, getMemberByQR, getParticipantById, recordAttendance, checkoutAttendance, recordGuestAttendance } = useAttendance();
@@ -54,7 +70,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       const backCamera = cameras.find(camera => /back|rear|environment/i.test(camera.label || ''));
       await html5QrCode.start(
         backCamera?.id || cameras[0].id,
-        { fps: 20, qrbox: { width: 250, height: 250 } },
+        QR_SCANNER_CONFIG,
         onDecoded,
         () => {}
       );
@@ -76,6 +92,11 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     await stopScanner();
 
     const cleanText = (decodedText || '').trim();
+    let payload = null;
+    try {
+      const parsed = JSON.parse(cleanText);
+      if (parsed && typeof parsed === 'object') payload = parsed;
+    } catch (e) {}
     const recoverScan = () => {
       setIsProcessing(false);
       hasScanned.current = false;
@@ -85,21 +106,31 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     let scannedUrl = null;
     let invitationToken = null;
     try { scannedUrl = new URL(cleanText); } catch (e) {}
-    if (scannedUrl?.searchParams.get('type') === 'opd') {
-      if (!selectedActivity) {
+    const invitationType = scannedUrl?.searchParams.get('type') || payload?.type || null;
+    const scannedActivityId = scannedUrl?.searchParams.get('absen') || payload?.activityId || payload?.absen || null;
+    const activityForScan = scannedActivityId
+      ? activities.find(activity => activity.id === scannedActivityId)
+      : selectedActivity;
+    if (scannedActivityId && !activityForScan) {
+      setScanError('QR undangan tidak terkait dengan agenda yang tersedia.');
+      recoverScan();
+      return;
+    }
+    if (invitationType === 'opd') {
+      if (!activityForScan) {
         setScanError('Tidak ada agenda kegiatan yang dipilih.');
         recoverScan();
         return;
       }
 
-      const guestId = scannedUrl.searchParams.get('guestId') || null;
-      const agency = scannedUrl.searchParams.get('agency') || 'OPD/Instansi';
-      const invitedName = scannedUrl.searchParams.get('name') || 'Peserta OPD';
-      const participantCategory = scannedUrl.searchParams.get('category') || 'OPD/INSTANSI';
-      const invitationToken = scannedUrl.searchParams.get('token') || null;
+      const guestId = scannedUrl?.searchParams.get('guestId') || payload?.guestId || null;
+      const agency = scannedUrl?.searchParams.get('agency') || payload?.agency || 'OPD/Instansi';
+      const invitedName = scannedUrl?.searchParams.get('name') || payload?.name || 'Peserta OPD';
+      const participantCategory = scannedUrl?.searchParams.get('category') || payload?.category || 'OPD/INSTANSI';
+      const invitationToken = scannedUrl?.searchParams.get('token') || payload?.token || null;
 
       const existingGuestAttendance = logs.find(log =>
-        log.activityId === selectedActivity.id &&
+        log.activityId === activityForScan.id &&
         log.participantType === 'EXTERNAL' &&
         ((guestId && log.guestId === guestId) ||
           (String(log.agency || '').trim().toLowerCase() === String(agency || '').trim().toLowerCase() &&
@@ -119,7 +150,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
         }
 
         const checkoutResult = await checkoutAttendance({
-          activityId: selectedActivity.id,
+          activityId: activityForScan.id,
           participantType: 'EXTERNAL',
           guestId,
           agency,
@@ -135,7 +166,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       }
 
       const result = await recordGuestAttendance({
-        activityId: selectedActivity.id,
+        activityId: activityForScan.id,
         guestId,
         agency,
         invitedName,
@@ -155,13 +186,23 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       if (cleanText.includes('http://') || cleanText.includes('https://') || cleanText.includes('?')) {
         const urlObj = new URL(cleanText.startsWith('http') ? cleanText : window.location.origin + cleanText);
         invitationToken = urlObj.searchParams.get('token') || null;
-        const urlToken = invitationToken || urlObj.searchParams.get('member') || urlObj.searchParams.get('id');
+        const urlToken = invitationToken || urlObj.searchParams.get('memberId') || urlObj.searchParams.get('member') || urlObj.searchParams.get('id');
         if (urlToken) extractedToken = urlToken;
       }
     } catch (e) {}
+    invitationToken = invitationToken || payload?.token || null;
 
     // 2. Cari member dengan helper getMemberByQR
     let member = getMemberByQR(extractedToken) || getMemberByQR(cleanText);
+
+    // QR undangan anggota berbentuk ACTIVITY_TOKEN:MEMBER_ID.
+    // Token ini bukan QR Kartu Anggota, tetapi tetap harus mengarah ke peserta INTERNAL.
+    const invitationMemberId = invitationType === 'member'
+      ? (scannedUrl?.searchParams.get('memberId') || payload?.memberId || (invitationToken?.includes(':') ? invitationToken.slice(invitationToken.lastIndexOf(':') + 1) : ''))
+      : '';
+    if (!member && invitationMemberId) {
+      member = getParticipantById(invitationMemberId);
+    }
 
     // 3. Parse jika QR berupa format JSON
     if (!member) {
@@ -201,13 +242,25 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       return;
     }
 
-    if (!selectedActivity) {
+    if (!activityForScan) {
       setScanError('Tidak ada agenda kegiatan yang dipilih. Pilih agenda kegiatan terlebih dahulu.');
       recoverScan();
       return;
     }
 
-    const existingAttendance = logs.find(log => log.activityId === selectedActivity.id && log.memberId === member.id && log.participantType !== 'EXTERNAL');
+    if (invitationMemberId && member.id !== invitationMemberId) {
+      setScanError('QR undangan anggota tidak sesuai dengan identitas peserta.');
+      recoverScan();
+      return;
+    }
+
+    if (invitationMemberId && Array.isArray(activityForScan.participantMemberIds) && !activityForScan.participantMemberIds.includes(member.id)) {
+      setScanError('Anggota pada QR undangan tidak terdaftar sebagai peserta agenda ini.');
+      recoverScan();
+      return;
+    }
+
+    const existingAttendance = logs.find(log => log.activityId === activityForScan.id && log.memberId === member.id && log.participantType !== 'EXTERNAL');
     if (existingAttendance) {
       if (existingAttendance.checkOutAt) {
         setScanError(`${member.name} sudah melakukan Check-out pada agenda ini.`);
@@ -218,8 +271,8 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
         recoverScan();
         return;
       }
-      const checkoutResult = await checkoutAttendance({ activityId: selectedActivity.id, memberId: member.id, method: 'QR_WEBCAM', operatorName: 'Petugas Laptop Webcam Scanner' });
-      if (checkoutResult.success) setScanResult({ ...checkoutResult, member, isCheckout: true });
+      const checkoutResult = await checkoutAttendance({ activityId: activityForScan.id, memberId: member.id, method: 'QR_WEBCAM', operatorName: 'Petugas Laptop Webcam Scanner' });
+      if (checkoutResult.success) setScanResult({ ...checkoutResult, member, participantType: 'INTERNAL', isCheckout: true });
       else { setScanError(checkoutResult.message || 'Gagal menyimpan Check-out.'); recoverScan(); }
       setIsProcessing(false);
       return;
@@ -227,7 +280,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
 
     // Rekam absensi ke Firestore (Webcam Petugas Meja Registrasi diizinkan scan kartu banyak anggota)
     const result = await recordAttendance({
-      activityId: selectedActivity.id,
+      activityId: activityForScan.id,
       memberId: member.id,
       method: 'QR_WEBCAM',
       operatorName: 'Petugas Laptop Webcam Scanner',
@@ -236,7 +289,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     });
 
     if (result.success) {
-      setScanResult({ ...result, member });
+      setScanResult({ ...result, member, participantType: 'INTERNAL' });
       setScanError('');
       try {
         confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
@@ -246,7 +299,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       recoverScan();
     }
     setIsProcessing(false);
-  }, [isProcessing, getMemberByQR, getParticipantById, members, personnel, logs, recordAttendance, checkoutAttendance, selectedActivity, stopScanner, restartScanner]);
+  }, [isProcessing, getMemberByQR, getParticipantById, members, personnel, activities, logs, recordAttendance, checkoutAttendance, selectedActivity, stopScanner, restartScanner]);
 
   // Inisialisasi kamera scanner
   useEffect(() => {
@@ -285,20 +338,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
 
         await html5QrCode.start(
           cameraId,
-          {
-            fps: 20,
-            qrbox: (viewfinderWidth, viewfinderHeight) => {
-              const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-              const qrboxSize = Math.floor(minEdge * 0.8);
-              return {
-                width: qrboxSize,
-                height: qrboxSize
-              };
-            },
-            experimentalFeatures: {
-              useBarCodeDetectorIfSupported: true
-            }
-          },
+          QR_SCANNER_CONFIG,
           (decodedText) => handleQRScanned(decodedText),
           () => {} // abaikan error frame tidak terbaca
         );
@@ -347,7 +387,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       const backCamera = cameras.find(c => /back|rear|environment/i.test(c.label || ''));
       await html5QrCode.start(
         backCamera?.id || cameras[0].id,
-        { fps: 20, qrbox: { width: 250, height: 250 } },
+        QR_SCANNER_CONFIG,
         (decodedText) => handleQRScanned(decodedText),
         () => {}
       );
@@ -491,7 +531,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
                   ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
                   : 'bg-amber-950 text-amber-300 border border-amber-800'
               }`}>
-                ✓ ABSENSI BERHASIL — {(scanResult.log?.status || 'Hadir').toUpperCase()}
+                ✓ {scanResult.log?.checkOutAt ? 'CHECK-OUT BERHASIL' : 'ABSENSI BERHASIL'} — {(scanResult.log?.checkOutAt ? (scanResult.log?.checkoutStatus || 'Mengikuti Kegiatan Sampai Selesai') : (scanResult.log?.status || 'Hadir')).toUpperCase()}
               </span>
               <h4 className="text-xs text-slate-400">Verifikasi Visual Foto Identitas Anggota DPRD</h4>
             </div>
@@ -530,6 +570,9 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
                   Waktu: <span className="text-emerald-400 font-mono font-semibold">
                     {new Date(scanResult.log?.timestampISO || Date.now()).toLocaleTimeString('id-ID')} WIB
                   </span>
+                </p>
+                <p className="text-[10px] text-slate-500 pt-1">
+                  Perangkat: {scanResult.log?.deviceType || 'Laptop / Desktop Petugas'}{scanResult.log?.deviceOS ? ` • ${scanResult.log.deviceOS}` : ''}{scanResult.log?.deviceBrowser ? ` • ${scanResult.log.deviceBrowser}` : ''}
                 </p>
               </div>
             </div>

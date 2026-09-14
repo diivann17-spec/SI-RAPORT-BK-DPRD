@@ -14,7 +14,7 @@ export default function GPSAttendance() {
   const {
     activeMemberId, setActiveMemberId,
     getMemberById, members,
-    activities, logs,
+    activities, logs, scoreSettings,
     recordAttendance, checkoutAttendance, loading
   } = useAttendance();
 
@@ -116,7 +116,7 @@ export default function GPSAttendance() {
     : { isWithin: false, distance: null, radiusMeters: Number(selectedActivity?.radiusMeters) || 150, accuracyMeters: null, accuracyLimit: 25 };
 
   // Hitung status keterlambatan otomatis
-  const timeCalc = selectedActivity ? calculateAttendanceStatus(selectedActivity, new Date()) : { status: 'Hadir', message: 'Tepat waktu' };
+  const timeCalc = selectedActivity ? calculateAttendanceStatus(selectedActivity, new Date(), scoreSettings) : { status: 'Hadir', message: 'Tepat waktu' };
 
   // Handle pilih foto bukti
   const handlePhotoChange = (e) => {

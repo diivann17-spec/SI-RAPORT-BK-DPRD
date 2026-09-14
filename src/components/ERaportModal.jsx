@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
 import { getStatusBadge, getMethodBadge, formatCheckInWithStatus } from '../utils/raportUtils';
-import { getMemberAKDs, memberHasAKD, matchAKDCategory } from '../utils/akdUtils';
+import { getMemberAKDs, matchAKDCategory } from '../utils/akdUtils';
 import dprdLogo from '../logo.png';
 import {
   FileSpreadsheet,
@@ -16,7 +16,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 
-export default function ERaportModal({ isOpen, onClose, memberId }) {
+export default function ERaportModal({ isOpen, onClose, memberId, reportType = 'AKD' }) {
   const {
     getMemberById,
     getMemberRaport,
@@ -55,17 +55,10 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
 
   const memberLogs = logs.filter(l => l.memberId === memberId);
 
-  // Group activities by category for category-wise raport breakdown (Struktur AKD)
-  const categories = [
-    'Komisi I', 'Komisi II', 'Komisi III', 'Komisi IV',
-    'Badan Kehormatan (BK)', 'Badan Anggaran (Banggar)',
-    'Badan Musyawarah (Banmus)', 'Badan Pembentukan Peraturan Daerah (Bapemperda)',
-    'Panitia Khusus (Pansus 1)', 'Panitia Khusus (Pansus 2)', 'Panitia Khusus (Pansus 3)', 'Panitia Khusus (Pansus 4)',
-    'Pimpinan DPRD', 'Rapat Paripurna'
-  ];
-  const visibleCategories = categories.filter(category =>
-    /paripurna/i.test(category) || memberHasAKD(member, category)
-  );
+  const visibleCategories = reportType === 'AVERAGE'
+    ? ['Keseluruhan Agenda Wajib']
+    : [...getMemberAKDs(member), 'Rapat Paripurna']
+      .filter((category, index, categories) => categories.findIndex(value => matchAKDCategory(value, category)) === index);
 
   const handleSaveNote = () => {
     saveBKNote(memberId, noteText, warningStatus);
@@ -161,7 +154,11 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
           <div className="border-b border-slate-300 py-3 text-center">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-800">Dokumen Resmi Badan Kehormatan</p>
             <h1 className="mt-1 font-serif text-lg font-black uppercase tracking-wide text-slate-900">e-Raport Kedisiplinan Kehadiran Digital</h1>
-            <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">Rekapitulasi Kehadiran Anggota DPRD Berdasarkan Keanggotaan AKD</p>
+            <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+              {reportType === 'AVERAGE'
+                ? 'Rekapitulasi Keseluruhan Agenda Wajib Hadir Anggota DPRD'
+                : 'Rekapitulasi Kehadiran Anggota DPRD Berdasarkan Keanggotaan AKD'}
+            </p>
             <p className="mt-1 text-[9px] text-slate-500">Format cetak F4 / Folio (215 x 330 mm)</p>
           </div>
 
@@ -206,9 +203,9 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
           {/* Breakdown Table by Activity Category */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
+                <span className="flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                <span>1. Evaluasi Kehadiran Berdasarkan Jenis Kegiatan (s.d {selectedMaxMonth === '11' ? 'November' : selectedMaxMonth === '12' ? 'Desember' : selectedMaxMonth === 'ALL' ? 'Semua' : `Bulan ${selectedMaxMonth}`})</span>
+                  <span>{reportType === 'AVERAGE' ? '1. Rekapitulasi Kehadiran Keseluruhan' : '1. Evaluasi Kehadiran Berdasarkan AKD'} (s.d {selectedMaxMonth === '11' ? 'November' : selectedMaxMonth === '12' ? 'Desember' : selectedMaxMonth === 'ALL' ? 'Semua' : `Bulan ${selectedMaxMonth}`})</span>
               </span>
               <span className="text-[10px] text-slate-500 font-mono">Total: {filteredActivities.length} Agenda Rapat</span>
             </h4>
@@ -228,7 +225,9 @@ export default function ERaportModal({ isOpen, onClose, memberId }) {
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {visibleCategories.map(cat => {
-                    const catRaport = getMemberRaport(memberId, cat, selectedMaxMonth);
+                    const catRaport = reportType === 'AVERAGE'
+                      ? raport
+                      : getMemberRaport(memberId, cat, selectedMaxMonth);
                     return (
                       <tr key={cat} className="hover:bg-slate-50">
                         <td className="p-2 font-semibold text-slate-900">{cat}</td>

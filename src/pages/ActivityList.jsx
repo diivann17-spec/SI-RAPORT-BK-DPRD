@@ -33,6 +33,7 @@ const EMPTY_FORM = {
   startTime: '09:00',
   endTime: '12:00',
   toleranceMinutes: 30,
+  heavyLateMinutes: 60,
   locationName: '',
   roomId: 'ROOM-KOMISI-I',
   targetLat: -6.760700,
@@ -485,7 +486,7 @@ export default function ActivityList() {
                         {metrics.actLogs.map(log => {
                           const isExt = log.participantType === 'EXTERNAL';
                           return (
-                            <div key={log.id} className="pt-1.5 first:pt-0 flex items-center justify-between gap-2">
+                            <div key={log.id} className="pt-1.5 first:pt-0 flex flex-wrap items-center justify-between gap-2">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase shrink-0 ${isExt ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'}`}>
                                   {isExt ? (log.guestAgency || 'OPD') : (log.memberFraksi || 'Dewan')}
@@ -501,6 +502,9 @@ export default function ActivityList() {
                                 <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${String(log.status || '').toLowerCase().includes('terlambat') ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
                                   {log.status || 'Hadir'}
                                 </span>
+                              </div>
+                              <div className="basis-full pl-0 text-[9px] text-slate-500">
+                                Perangkat: {log.deviceType || 'Tidak diketahui'}{log.deviceOS ? ` • ${log.deviceOS}` : ''}{log.deviceBrowser ? ` • ${log.deviceBrowser}` : ''}
                               </div>
                             </div>
                           );
@@ -696,7 +700,20 @@ export default function ActivityList() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Status Agenda:</label>
+                  <select
+                    value={formData.status || 'ACTIVE'}
+                    onChange={e => handleChange('status', e.target.value)}
+                    className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-200 text-xs"
+                  >
+                    <option value="SCHEDULED">Terjadwal</option>
+                    <option value="ACTIVE">Berlangsung</option>
+                    <option value="COMPLETED">Selesai</option>
+                    <option value="CANCELLED">Dibatalkan</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block font-bold text-slate-300 mb-1">Tanggal Kegiatan:</label>
                   <input
@@ -730,7 +747,7 @@ export default function ActivityList() {
               </div>
 
               {/* Toleransi Waktu & Radius GPS */}
-              <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-800/50 rounded-2xl border border-slate-700">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-slate-800/50 rounded-2xl border border-slate-700">
                 <div>
                   <label className="block font-bold text-amber-400 mb-1">Toleransi Keterlambatan:</label>
                   <div className="flex items-center gap-2">
@@ -760,6 +777,21 @@ export default function ActivityList() {
                     <span className="text-slate-400 text-xs">Meter</span>
                   </div>
                 </div>
+
+                <div>
+                  <label className="block font-bold text-rose-400 mb-1">Batas Terlambat Berat:</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={Number(formData.toleranceMinutes || 30) + 1}
+                      max="480"
+                      value={formData.heavyLateMinutes ?? 60}
+                      onChange={e => handleChange('heavyLateMinutes', Number(e.target.value))}
+                      className="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs font-bold"
+                    />
+                    <span className="text-slate-400 text-xs">Menit</span>
+                  </div>
+                </div>
               </div>
 
               <label className="flex items-center gap-2 rounded-xl border border-cyan-800/60 bg-cyan-950/30 p-3 text-xs text-cyan-100">
@@ -772,6 +804,19 @@ export default function ActivityList() {
                 <span>
                   <strong>Wajibkan GPS untuk absensi mandiri</strong>
                   <span className="block text-[10px] text-cyan-300/70">Jika tidak dicentang, QR tetap dapat digunakan tanpa lokasi perangkat.</span>
+                </span>
+              </label>
+
+              <label className="flex items-center gap-2 rounded-xl border border-amber-800/60 bg-amber-950/30 p-3 text-xs text-amber-100">
+                <input
+                  type="checkbox"
+                  checked={Boolean(formData.reportLocked)}
+                  onChange={event => handleChange('reportLocked', event.target.checked)}
+                  className="accent-amber-500"
+                />
+                <span>
+                  <strong>Kunci periode agenda setelah ditetapkan</strong>
+                  <span className="block text-[10px] text-amber-300/70">Absensi biasa ditutup; koreksi wajib melalui manual dengan alasan resmi.</span>
                 </span>
               </label>
 

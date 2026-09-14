@@ -131,7 +131,7 @@ export function getMethodBadge(method) {
  * @param {Date} [scanDate=new Date()] - Waktu saat scan dilakukan
  * @returns {{ status: string, isExpired: boolean, isLate: boolean, minutesDiff: number, message: string }}
  */
-export function calculateAttendanceStatus(activity, scanDate = new Date()) {
+export function calculateAttendanceStatus(activity, scanDate = new Date(), thresholds = {}) {
   if (!activity) return { status: 'On Time', isExpired: false, isLate: false, minutesDiff: 0, message: 'Kegiatan valid' };
 
   try {
@@ -179,13 +179,16 @@ export function calculateAttendanceStatus(activity, scanDate = new Date()) {
 
     if (nowWib <= endDateTime) {
       const lateMins = Math.max(1, Math.round((nowWib - startDateTime) / 60000));
+      const heavyLateMinutes = Math.max(tolerance + 1, Number(activity.heavyLateMinutes ?? thresholds.heavyLateMinutes ?? 60));
+      const isHeavyLate = lateMins >= heavyLateMinutes;
       return {
-        status: `Terlambat ${lateMins} Menit`,
+        status: isHeavyLate ? `Terlambat Berat ${lateMins} Menit` : `Terlambat ${lateMins} Menit`,
         isNotStarted: false,
         isExpired: false,
         isLate: true,
+        isHeavyLate,
         minutesDiff: lateMins,
-        message: `Terlambat ${lateMins} Menit dari jadwal mulai.`
+        message: `${isHeavyLate ? 'Terlambat Berat' : 'Terlambat'} ${lateMins} menit dari jadwal mulai.`
       };
     }
 

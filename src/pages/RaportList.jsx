@@ -14,7 +14,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 
-import { AKD_CATEGORIES, matchAKDCategory } from '../utils/akdUtils';
+import { AKD_CATEGORIES, getMemberAKDs, matchAKDCategory } from '../utils/akdUtils';
 import * as XLSX from 'xlsx';
 
 export default function RaportList() {
@@ -33,10 +33,12 @@ export default function RaportList() {
   const [selectedActivity, setSelectedActivity] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
   const [activeModalMemberId, setActiveModalMemberId] = useState(null);
+  const [activeModalReportType, setActiveModalReportType] = useState('AVERAGE');
+  const [reportType, setReportType] = useState('AVERAGE');
 
   // Compute all member raports with selectedPeriodMonth and selectedAKD
   const memberRaports = members.map(m => {
-    const raport = getMemberRaport(m.id, selectedAKD, selectedPeriodMonth, selectedActivity, selectedYear);
+    const raport = getMemberRaport(m.id, reportType === 'AKD' ? selectedAKD : 'ALL', selectedPeriodMonth, selectedActivity, selectedYear);
     const bkNote = bkNotes[m.id];
     return {
       member: m,
@@ -56,22 +58,42 @@ export default function RaportList() {
 
     // Fraksi filter
     const matchFraksi = selectedFraksi === 'ALL' || member.fraksi === selectedFraksi;
-    const memberAKDs = [...(Array.isArray(member.akdMemberships) ? member.akdMemberships : []), member.komisi].filter(Boolean);
-    const matchAKD = selectedAKD === 'ALL' || memberAKDs.some(akd => matchAKDCategory(akd, selectedAKD));
+    const memberAKDs = getMemberAKDs(member);
+    const isParipurnaFilter = /paripurna/i.test(selectedAKD);
+    const matchAKD = selectedAKD === 'ALL' || isParipurnaFilter || memberAKDs.some(akd => matchAKDCategory(akd, selectedAKD));
 
-    return matchSearch && matchColor && matchFraksi && matchAKD;
+    return matchSearch && matchColor && matchFraksi && (reportType === 'AVERAGE' || matchAKD);
   });
+
+  const akdRaports = memberRaports.flatMap(({ member, bkNote }) => {
+    const categories = [
+      ...(selectedAKD === 'ALL' ? getMemberAKDs(member) : [selectedAKD]),
+      'Rapat Paripurna'
+    ];
+    return categories
+      .filter((category, index, values) => values.findIndex(value => matchAKDCategory(value, category)) === index)
+      .map(category => ({
+        member,
+        category,
+        raport: getMemberRaport(member.id, category, selectedPeriodMonth, selectedActivity, selectedYear),
+        bkNote
+      }));
+  });
+
+  const reportRows = reportType === 'AVERAGE' ? memberRaports : akdRaports;
 
   const fraksiList = Array.from(new Set(members.map(m => m.fraksi)));
   const yearList = Array.from(new Set(activities.map(activity => String(activity.date || '').slice(0, 4)).filter(Boolean))).sort();
 
   const exportWorkbook = () => {
-    const header = ['Nama', 'NIP', 'Fraksi', 'Komisi/AKD', 'Total Kegiatan', 'Hadir', 'Terlambat', 'Izin', 'Sakit', 'Dinas Luar', 'Tanpa Keterangan', 'Persentase'];
-    const rows = memberRaports.map(({ member, raport }) => [
-      member.name, member.nip || '', member.fraksi || '', member.komisi || '',
-      raport.totalMandatory, raport.breakdown.hadir, raport.breakdown.terlambat,
+    const header = ['Nama', 'NIP', 'Fraksi', 'AKD / Komisi', 'Total Agenda Wajib', 'Hadir', 'Tepat Waktu', 'Terlambat', 'Terlambat Berat', 'Izin', 'Sakit', 'Dinas Luar', 'Tidak Hadir / Alpha', 'Persentase', 'Nilai', 'Kategori'];
+    const rows = reportRows.map(({ member, raport, category }) => [
+      member.name, member.nip || '', member.fraksi || '', category || member.komisi || '',
+      raport.totalMandatory, raport.breakdown.hadir, raport.breakdown.tepatWaktu,
+      raport.breakdown.terlambat, raport.breakdown.terlambatBerat,
       raport.breakdown.izin, raport.breakdown.sakit, raport.breakdown.dinas,
-      raport.breakdown.alpa, `${raport.percentage}%`
+      raport.breakdown.alpa, raport.percentage === null ? '' : `${raport.percentage}%`,
+      raport.discipline.grade, raport.categoryInfo.label
     ]);
     const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
     worksheet['!cols'] = header.map(() => ({ wch: 20 }));
@@ -101,6 +123,30 @@ export default function RaportList() {
           <button onClick={exportWorkbook} className="flex-1 sm:flex-none px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 transition"><FileSpreadsheet className="w-4 h-4" /> Excel (.xlsx)</button>
           <button onClick={() => window.print()} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition"><Printer className="w-4 h-4 text-emerald-400" /> Cetak / PDF</button>
         </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row gap-1.5" role="tablist" aria-label="Jenis raport kehadiran">
+        {[
+          { key: 'AVERAGE', label: 'Raport Keseluruhan / Rata-Rata' },
+          { key: 'AKD', label: 'Raport Berdasarkan AKD' }
+        ].map(tab => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={reportType === tab.key}
+            onClick={() => setReportType(tab.key)}
+            className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-extrabold transition ${reportType === tab.key ? 'bg-emerald-600 text-white shadow' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="px-1 text-xs text-slate-500 dark:text-slate-400">
+        {reportType === 'AVERAGE'
+          ? 'Rekap seluruh agenda berstatus Wajib Hadir yang relevan dengan anggota, termasuk Rapat Paripurna.'
+          : 'Hanya AKD yang menjadi keanggotaan anggota yang ditampilkan. Rapat Paripurna ditampilkan sebagai kegiatan wajib tersendiri.'}
       </div>
 
       {/* Mobile-Friendly Category Tabs (Sesuai Mockup Screen 6) */}
@@ -148,7 +194,7 @@ export default function RaportList() {
               onChange={(e) => setSelectedAKD(e.target.value)}
               className="w-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-emerald-600 dark:text-emerald-400"
             >
-              {AKD_CATEGORIES.map(akd => (
+              {(reportType === 'AKD' ? AKD_CATEGORIES : ['ALL']).map(akd => (
                 <option key={akd} value={akd}>{akd === 'ALL' ? 'Semua AKD / Seluruh Agenda' : `Filter: ${akd}`}</option>
               ))}
             </select>
@@ -207,7 +253,7 @@ export default function RaportList() {
             Tidak ada data anggota sesuai filter.
           </div>
         ) : (
-          memberRaports.map(({ member, raport, bkNote }) => {
+            reportRows.map(({ member, raport, bkNote, category }) => {
             const isGreen = raport.categoryInfo.key === 'GREEN';
             const isYellow = raport.categoryInfo.key === 'YELLOW';
             const hasNoData = raport.categoryInfo.key === 'NO_DATA';
@@ -222,8 +268,11 @@ export default function RaportList() {
 
             return (
               <div
-                key={member.id}
-                onClick={() => setActiveModalMemberId(member.id)}
+                key={`${member.id}-${category || 'average'}`}
+                onClick={() => {
+                  setActiveModalReportType(reportType);
+                  setActiveModalMemberId(member.id);
+                }}
                 className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 flex items-center justify-between shadow-md active:scale-[0.99] transition cursor-pointer gap-3"
               >
                 <div className="flex items-center space-x-3 min-w-0">
@@ -240,7 +289,7 @@ export default function RaportList() {
                   )}
                   <div className="min-w-0">
                     <h4 className="font-bold text-xs text-white truncate">{member.name}</h4>
-                    <p className="text-[10px] text-slate-400 truncate">{member.jabatan} • {member.komisi}</p>
+                    <p className="text-[10px] text-slate-400 truncate">{reportType === 'AKD' ? category : `${member.jabatan} • ${member.komisi}`}</p>
                     <p className="text-[11px] font-black text-slate-200 font-mono mt-0.5">{raport.percentage === null ? 'Belum Ada Data' : `${raport.percentage}% Kehadiran • Nilai ${raport.discipline.grade}`}</p>
                   </div>
                 </div>
@@ -262,7 +311,7 @@ export default function RaportList() {
         
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-            Rekap Raport Kehadiran ({memberRaports.length} Anggota)
+            {reportType === 'AVERAGE' ? `Rekap Raport Keseluruhan / Rata-Rata (${memberRaports.length} Anggota)` : `Rekap Raport Berdasarkan AKD (${akdRaports.length} Rekap)`}
           </h3>
         </div>
 
@@ -270,18 +319,24 @@ export default function RaportList() {
           <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
             <thead className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold">
               <tr>
-                <th className="p-3">Anggota DPRD</th>
-                <th className="p-3">Fraksi & Komisi</th>
-                <th className="p-3 text-center">Kegiatan Diikuti</th>
-                <th className="p-3 text-right">Persentase Kehadiran</th>
-                <th className="p-3 text-center">Kategori Warna Raport</th>
-                <th className="p-3 text-center">Status Evaluasi BK</th>
-                <th className="p-3 text-right">Dokumen e-Raport</th>
+                <th className="p-3">Anggota</th>
+                <th className="p-3">{reportType === 'AKD' ? 'AKD' : 'Fraksi / Komisi'}</th>
+                <th className="p-3 text-center">Agenda</th>
+                <th className="p-3 text-center">Hadir</th>
+                <th className="p-3 text-center">Tepat Waktu</th>
+                <th className="p-3 text-center">Terlambat</th>
+                <th className="p-3 text-center">Izin / Sakit</th>
+                <th className="p-3 text-center">Dinas Luar</th>
+                <th className="p-3 text-center">Alpha</th>
+                <th className="p-3 text-right">Kehadiran</th>
+                <th className="p-3 text-center">Kategori</th>
+                <th className="p-3 text-center">Status BK</th>
+                <th className="p-3 text-right">e-Raport</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {memberRaports.map(({ member, raport, bkNote }) => (
-                <tr key={member.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+              {reportRows.map(({ member, raport, bkNote, category }) => (
+                <tr key={`${member.id}-${category || 'average'}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                   
                   <td className="p-3">
                     <div className="flex items-center space-x-3">
@@ -294,12 +349,37 @@ export default function RaportList() {
                   </td>
 
                   <td className="p-3">
-                    <p className="font-semibold text-slate-800 dark:text-slate-200">{member.fraksi}</p>
-                    <p className="text-[11px] text-slate-400">{member.komisi}</p>
+                    <p className="font-semibold text-slate-800 dark:text-slate-200">{reportType === 'AKD' ? category : member.fraksi}</p>
+                    <p className="text-[11px] text-slate-400">{reportType === 'AKD' ? 'Agenda wajib sesuai keanggotaan' : member.komisi}</p>
+                  </td>
+
+                  <td className="p-3 text-center font-mono text-[11px] font-bold">
+                    {raport.totalMandatory}
+                  </td>
+
+                  <td className="p-3 text-center font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                    {raport.breakdown.hadir}
                   </td>
 
                   <td className="p-3 text-center font-mono text-[11px]">
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400">{raport.attendedCount}</span> / {raport.totalMandatory} Kegiatan
+                    {raport.breakdown.tepatWaktu}
+                  </td>
+
+                  <td className="p-3 text-center font-mono text-[11px]">
+                    {raport.breakdown.terlambat + raport.breakdown.terlambatBerat}
+                    {raport.breakdown.terlambatBerat > 0 && <span className="block text-[9px] text-rose-500">Berat: {raport.breakdown.terlambatBerat}</span>}
+                  </td>
+
+                  <td className="p-3 text-center font-mono text-[11px]">
+                    {raport.breakdown.izin} / {raport.breakdown.sakit}
+                  </td>
+
+                  <td className="p-3 text-center font-mono text-[11px]">
+                    {raport.breakdown.dinas}
+                  </td>
+
+                  <td className="p-3 text-center font-mono text-[11px] text-rose-600 dark:text-rose-400">
+                    {raport.breakdown.alpa}
                   </td>
 
                   <td className="p-3 text-right font-mono font-extrabold text-sm text-slate-900 dark:text-white">
@@ -324,7 +404,10 @@ export default function RaportList() {
 
                   <td className="p-3 text-right">
                     <button
-                      onClick={() => setActiveModalMemberId(member.id)}
+                      onClick={() => {
+                        setActiveModalReportType(reportType);
+                        setActiveModalMemberId(member.id);
+                      }}
                       className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-[11px] inline-flex items-center gap-1.5 shadow"
                     >
                       <FileText className="w-3.5 h-3.5" />
@@ -345,6 +428,7 @@ export default function RaportList() {
         isOpen={Boolean(activeModalMemberId)}
         onClose={() => setActiveModalMemberId(null)}
         memberId={activeModalMemberId}
+        reportType={activeModalReportType}
       />
 
     </div>

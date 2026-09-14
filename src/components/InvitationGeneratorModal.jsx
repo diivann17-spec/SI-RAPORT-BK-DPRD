@@ -47,8 +47,9 @@ export default function InvitationGeneratorModal({ isOpen, onClose, activity, me
     return `${protocol}//${host}${portSuffix}${pathname}`;
   };
   const baseUrl = getInvitationBaseUrl();
-  const getQrValue = (member) => `${baseUrl}?absen=${activity.id}&token=${encodeURIComponent(`${activity.qrToken || activity.id}:${member.id}`)}`;
-  const getOpdQrValue = (recipient) => `${baseUrl}?absen=${activity.id}&type=opd&guestId=${encodeURIComponent(recipient.id)}&category=OPD/INSTANSI&agency=${encodeURIComponent(recipient.agency)}&name=${encodeURIComponent(recipient.invitedName)}&position=${encodeURIComponent(recipient.position || '')}&token=${encodeURIComponent(`${activity.qrToken || activity.id}:${recipient.id}`)}`;
+  // Payload ringkas mempercepat kamera membaca QR undangan yang dicetak.
+  const getQrValue = (member) => JSON.stringify({ type: 'member', activityId: activity.id, memberId: member.id, token: `${activity.qrToken || activity.id}:${member.id}` });
+  const getOpdQrValue = (recipient) => JSON.stringify({ type: 'opd', activityId: activity.id, guestId: recipient.id, agency: recipient.agency, name: recipient.invitedName, position: recipient.position || '', token: `${activity.qrToken || activity.id}:${recipient.id}` });
   const addOpdRecipient = async (event) => {
     event.preventDefault();
     if (!opdForm.agency.trim() || !opdForm.invitedName.trim()) return;

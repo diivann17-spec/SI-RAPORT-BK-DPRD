@@ -33,6 +33,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
     recordAttendance,
     checkoutAttendance,
     recordGuestAttendance,
+    scoreSettings,
     loading: ctxLoading
   } = useAttendance();
 
@@ -168,7 +169,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
     : { isWithin: false, distance: null, radiusMeters: Number(selectedActivity?.radiusMeters) || 150, accuracyMeters: null, accuracyLimit: 25 };
 
   const timeCalc = selectedActivity
-    ? calculateAttendanceStatus(selectedActivity, now)
+    ? calculateAttendanceStatus(selectedActivity, now, scoreSettings)
     : { status: 'Hadir', message: 'Tepat Waktu', isExpired: false, isLate: false };
 
   const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
@@ -491,7 +492,7 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
               <CheckCircle2 className="w-8 h-8" />
             </div>
             <div>
-              <h2 className="text-lg font-black text-white">Presensi Berhasil Dicatat! 🎉</h2>
+              <h2 className="text-lg font-black text-white">{submitSuccess.checkOutAt ? 'Check-out Berhasil Dicatat!' : 'Check-in Berhasil Dicatat!'} 🎉</h2>
               <p className="text-xs text-slate-300 mt-1.5">
                 Data kehadiran Anda telah tersimpan secara resmi di Sistem SI-RAPORT BK DPRD.
               </p>
@@ -508,18 +509,22 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp })
                   <span className="font-bold text-white">{submitSuccess.agency}</span>
                 </div>
               )}
-              <div className="flex justify-between">
+              {!submitSuccess.checkOutAt && <div className="flex justify-between">
                 <span className="text-slate-400">Status Kehadiran:</span>
                 <span className="font-bold text-emerald-400">{submitSuccess.status}</span>
-              </div>
+              </div>}
               <div className="flex justify-between">
                 <span className="text-slate-400">Check-in:</span>
                 <span className="font-mono text-slate-300">{new Date(submitSuccess.checkInAt || submitSuccess.timestamp).toLocaleTimeString('id-ID')} WIB</span>
               </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-slate-400">Perangkat:</span>
+                <span className="text-right text-slate-300">{submitSuccess.deviceType || 'Tidak diketahui'}{submitSuccess.deviceOS ? ` • ${submitSuccess.deviceOS}` : ''}{submitSuccess.deviceBrowser ? ` • ${submitSuccess.deviceBrowser}` : ''}</span>
+              </div>
               {submitSuccess.checkOutAt && <>
                 <div className="flex justify-between"><span className="text-slate-400">Check-out:</span><span className="font-mono text-slate-300">{new Date(submitSuccess.checkOutAt).toLocaleTimeString('id-ID')} WIB</span></div>
                 <div className="flex justify-between"><span className="text-slate-400">Durasi:</span><span className="font-bold text-emerald-400">{Math.floor((submitSuccess.durationMinutes || 0) / 60)} Jam {(submitSuccess.durationMinutes || 0) % 60} Menit</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Status:</span><span className="font-bold text-amber-300">{submitSuccess.checkoutStatus}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Status Check-out:</span><span className="font-bold text-amber-300">{submitSuccess.checkoutStatus || 'Mengikuti Kegiatan Sampai Selesai'}</span></div>
               </>}
               <div className="flex justify-between">
                 <span className="text-slate-400">Agenda:</span>
