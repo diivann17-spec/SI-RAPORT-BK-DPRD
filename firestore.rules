@@ -303,7 +303,7 @@ service cloud.firestore {
     // ─── BK NOTES ───────────────────────────────────────────────────────────
     match /bkNotes/{noteId} {
       allow read: if isAdminOrBK();
-      allow create: if isBK();
+      allow create: if isAdminOrBK();
       allow update: if isAdmin() ||
         (isBK() && resource.data.createdBy == request.auth.uid);
       allow delete: if isAdmin();

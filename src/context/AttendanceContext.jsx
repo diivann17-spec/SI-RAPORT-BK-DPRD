@@ -48,6 +48,15 @@ const getActivityStatusKey = (activity) => String(activity?.status || 'ACTIVE').
 const getAttendanceDocumentId = (activityId, participantId, participantType = 'INTERNAL') =>
   `${participantType === 'EXTERNAL' ? 'ATT-GST' : 'ATT'}-${activityId}-${participantId}`;
 
+const getStableGuestId = (activityId, agency, invitedName) => {
+  const identity = `${activityId}-${agency}-${invitedName}`
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return `GST-${identity || activityId}`;
+};
+
 const validateAttendanceActivity = (activity) => {
   const status = getActivityStatusKey(activity);
   if (['CANCELLED', 'DIBATALKAN', 'CANCELED'].includes(status)) {
@@ -95,6 +104,74 @@ const normalizeRole = (role) => {
   return 'PETUGAS_BK';
 };
 
+const ATTENDANCE_QUEUE_KEY = 'siraport_attendance_queue';
+
+const readAttendanceQueue = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(ATTENDANCE_QUEUE_KEY) || '[]');
+    return Array.isArray(stored) ? stored : [];
+  } catch (error) {
+    return [];
+  }
+};
+
+const writeAttendanceQueue = (queue) => {
+  try {
+    localStorage.setItem(ATTENDANCE_QUEUE_KEY, JSON.stringify(queue));
+  } catch (error) {
+    console.warn('Attendance queue tidak dapat disimpan:', error);
+  }
+};
+
+const enqueueAttendanceWrite = (operation, logId, data) => {
+  const queue = readAttendanceQueue();
+  const existingIndex = queue.findIndex(item => item.logId === logId);
+  const existing = existingIndex >= 0 ? queue[existingIndex] : null;
+  const nextItem = {
+    id: `${operation}-${logId}`,
+    operation: existing?.operation === 'create' ? 'create' : operation,
+    logId,
+    data: existing?.operation === 'create' ? { ...existing.data, ...data } : data,
+    queuedAt: existing?.queuedAt || new Date().toISOString(),
+  };
+  if (existingIndex >= 0) queue[existingIndex] = nextItem;
+  else queue.push(nextItem);
+  writeAttendanceQueue(queue);
+  return queue;
+};
+
+const flushAttendanceQueue = async () => {
+  const queue = readAttendanceQueue();
+  if (!queue.length || !navigator.onLine) return { synced: 0, remaining: queue.length };
+
+  const remaining = [];
+  let synced = 0;
+  for (const item of queue) {
+    try {
+      const logRef = doc(db, COL.LOGS, item.logId);
+      if (item.operation === 'create') {
+        await runTransaction(db, async (transaction) => {
+          const existingSnapshot = await transaction.get(logRef);
+          if (existingSnapshot.exists()) return;
+          transaction.set(logRef, { ...item.data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        });
+      } else {
+        const { id, ...updateData } = item.data;
+        await updateDoc(logRef, { ...updateData, updatedAt: serverTimestamp() });
+      }
+      synced++;
+    } catch (error) {
+      if (error?.message === 'DUPLICATE_ATTENDANCE') {
+        synced++;
+      } else {
+        remaining.push(item);
+      }
+    }
+  }
+  writeAttendanceQueue(remaining);
+  return { synced, remaining: remaining.length };
+};
+
 const safeDbWrite = async (operation, timeoutMs = 4000, timeoutMessage = 'Koneksi ke server gagal. Data tersimpan secara lokal dan akan disinkronisasi saat koneksi kembali.') => {
   let timeoutId;
 
@@ -112,6 +189,7 @@ const safeDbWrite = async (operation, timeoutMs = 4000, timeoutMessage = 'Koneks
     return {
       ok: false,
       timedOut: error?.message === timeoutMessage,
+      duplicate: error?.message === 'DUPLICATE_ATTENDANCE',
       message: error?.message === timeoutMessage ? timeoutMessage : `${timeoutMessage} (${error?.message || 'Firestore menolak operasi.'})`,
     };
   } finally {
@@ -320,6 +398,24 @@ export function AttendanceProvider({ children }) {
     () => currentUser?.memberId || 'DPRD-001'
   );
 
+  useEffect(() => {
+    if (!authReady) return undefined;
+
+    const retryQueuedAttendance = async () => {
+      const result = await flushAttendanceQueue();
+      if (result.remaining > 0) setSyncStatus('pending');
+      else if (result.synced > 0) setSyncStatus('saved');
+    };
+
+    void retryQueuedAttendance();
+    const intervalId = window.setInterval(retryQueuedAttendance, 15000);
+    window.addEventListener('online', retryQueuedAttendance);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('online', retryQueuedAttendance);
+    };
+  }, [authReady, currentRole]);
+
   // 🔐 SECURITY FIX: login() dengan STRICT VALIDATION
   // Requirement: Data harus dari verified account (Firestore), bukan user input
   const login = ({ role, username, name, memberId, accountId, status }) => {
@@ -459,7 +555,12 @@ export function AttendanceProvider({ children }) {
           const bTs = getComparableTimestamp(b.timestamp);
           return bTs.localeCompare(aTs);
         });
-        setLogs(nextLogs);
+        const queuedIds = new Set(readAttendanceQueue().map(item => item.logId));
+        setLogs(previous => {
+          const pendingLocalLogs = previous.filter(log => log.syncPending && queuedIds.has(log.id));
+          const remoteIds = new Set(nextLogs.map(log => log.id));
+          return [...nextLogs, ...pendingLocalLogs.filter(log => !remoteIds.has(log.id))];
+        });
         setSyncStatus('saved');
         try { localStorage.setItem('siraport_logs', JSON.stringify(nextLogs)); } catch (e) {}
       }, err => {
@@ -857,6 +958,7 @@ export function AttendanceProvider({ children }) {
         roomId: activity.roomId || null,
         roomName: activity.roomName || activity.locationName || '',
         participantType: 'INTERNAL',
+        attendanceType: 'ANGGOTA',
         participantCategory: isPersonnel ? 'PERSONEL SEKRETARIAT' : 'ANGGOTA DPRD',
         participantStatus,
         includedInRaport: !isPersonnel && participantStatus === 'WAJIB_HADIR',
@@ -906,19 +1008,20 @@ export function AttendanceProvider({ children }) {
         'Absensi gagal disimpan ke Firestore. Periksa koneksi dan hak akses akun.'
       );
       if (!remoteWriteResult.ok) {
-        setSyncStatus(remoteWriteResult.timedOut ? 'pending' : 'failed');
-        if (remoteWriteResult.timedOut) {
-          const localLog = { ...newLog, syncPending: true };
-          setLogs(prev => [localLog, ...prev.filter(l => !(l.activityId === activityId && l.memberId === memberId))]);
-          void logAudit({
-            action: 'ATTENDANCE_RECORDED_OFFLINE',
-            details: `Presensi ${member.name} pada agenda "${activity.title}" tersimpan lokal dan menunggu sinkronisasi.`,
-            method,
-            deviceInfo,
-          });
-          return { success: true, log: localLog, warning: 'Absensi tersimpan di perangkat dan menunggu sinkronisasi saat koneksi kembali.' };
+        if (remoteWriteResult.duplicate) {
+          return { success: false, message: 'Peserta ini sudah memiliki presensi pada agenda tersebut.' };
         }
-        return { success: false, message: remoteWriteResult.message };
+        enqueueAttendanceWrite('create', newLog.id, newLog);
+        setSyncStatus('pending');
+        const localLog = { ...newLog, syncPending: true };
+        setLogs(prev => [localLog, ...prev.filter(l => !(l.activityId === activityId && l.memberId === memberId))]);
+        void logAudit({
+          action: 'ATTENDANCE_RECORDED_OFFLINE',
+          details: `Presensi ${member.name} pada agenda "${activity.title}" tersimpan lokal dan menunggu sinkronisasi.`,
+          method,
+          deviceInfo,
+        });
+        return { success: true, log: localLog, warning: `Absensi tersimpan lokal dan menunggu sinkronisasi. ${remoteWriteResult.message}` };
       }
       setSyncStatus('saved');
 
@@ -1046,19 +1149,17 @@ export function AttendanceProvider({ children }) {
         'Check-out gagal disimpan ke Firestore. Periksa koneksi dan hak akses akun.'
       );
       if (!remoteWriteResult.ok) {
-        setSyncStatus(remoteWriteResult.timedOut ? 'pending' : 'failed');
-        if (remoteWriteResult.timedOut) {
-          const localLog = { ...updatedLog, syncPending: true };
-          setLogs(previous => previous.map(log => log.id === existingLog.id ? localLog : log));
-          void logAudit({
-            action: 'ATTENDANCE_CHECKOUT_OFFLINE',
-            details: `Check-out ${attendeeName} pada agenda "${activity.title}" tersimpan lokal dan menunggu sinkronisasi.`,
-            method,
-            deviceInfo,
-          });
-          return { success: true, log: localLog, warning: 'Check-out tersimpan di perangkat dan menunggu sinkronisasi saat koneksi kembali.' };
-        }
-        return { success: false, message: remoteWriteResult.message };
+        enqueueAttendanceWrite('update', existingLog.id, updatedLog);
+        setSyncStatus('pending');
+        const localLog = { ...updatedLog, syncPending: true };
+        setLogs(previous => previous.map(log => log.id === existingLog.id ? localLog : log));
+        void logAudit({
+          action: 'ATTENDANCE_CHECKOUT_OFFLINE',
+          details: `Check-out ${attendeeName} pada agenda "${activity.title}" tersimpan lokal dan menunggu sinkronisasi.`,
+          method,
+          deviceInfo,
+        });
+        return { success: true, log: localLog, warning: `Check-out tersimpan lokal dan menunggu sinkronisasi. ${remoteWriteResult.message}` };
       }
       setSyncStatus('saved');
       setLogs(previous => previous.map(log => log.id === existingLog.id ? updatedLog : log));
@@ -1100,7 +1201,7 @@ export function AttendanceProvider({ children }) {
       }
 
       const deviceInfo = getDeviceFingerprint();
-      const currentGuestId = guestId || `GST-${Date.now()}`;
+      const currentGuestId = guestId || getStableGuestId(activityId, agency, invitedName || 'Pejabat Terkait');
       const deviceCheck = validateDeviceSingleAttendance(activityId, currentGuestId, logs);
 
       // Validasi 1 Tamu / Instansi Hanya Bisa 1x Check-in dan 1x Check-out per Agenda
@@ -1155,6 +1256,7 @@ export function AttendanceProvider({ children }) {
         roomId: activity.roomId || null,
         roomName: activity.roomName || activity.locationName || '',
         participantType: 'EXTERNAL',
+        attendanceType: String(participantCategory).toUpperCase().includes('OPD') ? 'OPD' : 'TAMU',
         participantCategory,
         participantStatus: 'EXTERNAL',
         includedInRaport: false,
@@ -1201,19 +1303,20 @@ export function AttendanceProvider({ children }) {
         'Absensi tamu gagal disimpan ke Firestore. Periksa koneksi dan hak akses akun.'
       );
       if (!remoteWriteResult.ok) {
-        setSyncStatus(remoteWriteResult.timedOut ? 'pending' : 'failed');
-        if (remoteWriteResult.timedOut) {
-          const localLog = { ...newLog, syncPending: true };
-          setLogs(prev => [localLog, ...prev.filter(l => !(l.activityId === activityId && l.guestId === currentGuestId))]);
-          void logAudit({
-            action: 'GUEST_CHECKIN_OFFLINE',
-            details: `Check-in tamu ${agency} pada agenda "${activity.title}" tersimpan lokal dan menunggu sinkronisasi.`,
-            method: 'GUEST_CHECKIN',
-            deviceInfo,
-          });
-          return { success: true, log: localLog, warning: 'Absensi tamu tersimpan di perangkat dan menunggu sinkronisasi saat koneksi kembali.' };
+        if (remoteWriteResult.duplicate) {
+          return { success: false, message: 'Tamu/OPD ini sudah memiliki presensi pada agenda tersebut.' };
         }
-        return { success: false, message: remoteWriteResult.message };
+        enqueueAttendanceWrite('create', newLog.id, newLog);
+        setSyncStatus('pending');
+        const localLog = { ...newLog, syncPending: true };
+        setLogs(prev => [localLog, ...prev.filter(l => !(l.activityId === activityId && l.guestId === currentGuestId))]);
+        void logAudit({
+          action: 'GUEST_CHECKIN_OFFLINE',
+          details: `Check-in tamu ${agency} pada agenda "${activity.title}" tersimpan lokal dan menunggu sinkronisasi.`,
+          method: 'GUEST_CHECKIN',
+          deviceInfo,
+        });
+        return { success: true, log: localLog, warning: `Absensi tamu tersimpan lokal dan menunggu sinkronisasi. ${remoteWriteResult.message}` };
       }
       setSyncStatus('saved');
 

@@ -206,41 +206,65 @@ export async function fetchBKNotes() {
  * Panggil sekali dari halaman Settings → "Sinkronisasi Demo Data ke Firestore".
  */
 export async function seedFirestoreFromMockData(members, activities, logs, auditTrails, bkNotes) {
-  const batch = writeBatch(db);
   let writeCount = 0;
 
-  // Seed Members
+  // Seed master data first. Attendance rules validate the persisted activity,
+  // so activities must exist before attendance logs are written.
+  const masterBatch = writeBatch(db);
   members.forEach(m => {
     const { id, ...data } = m;
     const ref = doc(db, COLLECTIONS.MEMBERS, id);
-    batch.set(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
+    masterBatch.set(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
     writeCount++;
   });
 
-  // Seed Activities
   activities.forEach(a => {
     const { id, ...data } = a;
     const ref = doc(db, COLLECTIONS.ACTIVITIES, id);
-    batch.set(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
+    masterBatch.set(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
     writeCount++;
   });
+  await masterBatch.commit();
 
-  // Seed Attendance Logs
+  // Old cached logs may not contain the fields required by the production
+  // attendance rules. Skip those records instead of failing the whole seed.
+  const logBatch = writeBatch(db);
+  let validLogCount = 0;
   logs.forEach(l => {
     const { id, ...data } = l;
-    const ref = doc(db, COLLECTIONS.ATTENDANCE_LOGS, id);
-    batch.set(ref, { ...data, createdAt: serverTimestamp() }, { merge: true });
-    writeCount++;
-  });
+    const isExternal = data.participantType === 'EXTERNAL';
+    const requiredFields = [
+      'activityId', 'agendaId', 'participantId', 'participantType',
+      'participantStatus', 'method', 'deviceId', 'deviceType',
+      'deviceOS', 'deviceBrowser'
+    ];
+    const isValid = requiredFields.every(field => data[field] !== undefined && data[field] !== null) &&
+      data.agendaId === data.activityId &&
+      (isExternal || ['WAJIB_HADIR', 'UNDANGAN', 'OPSIONAL'].includes(data.participantStatus));
+    if (!isValid) return;
 
-  // Seed BK Notes
+    const stableId = `ATT${isExternal ? '-GST' : ''}-${data.activityId}-${data.participantId}`;
+    const ref = doc(db, COLLECTIONS.ATTENDANCE_LOGS, stableId);
+    logBatch.set(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
+    validLogCount++;
+  });
+  if (validLogCount > 0) {
+    await logBatch.commit();
+    writeCount += validLogCount;
+  }
+
+  const noteBatch = writeBatch(db);
+  let noteCount = 0;
   Object.entries(bkNotes).forEach(([memberId, note]) => {
     const ref = doc(db, COLLECTIONS.BK_NOTES, memberId);
-    batch.set(ref, { ...note, memberId, updatedAt: serverTimestamp() }, { merge: true });
-    writeCount++;
+    noteBatch.set(ref, { ...note, memberId, updatedAt: serverTimestamp() }, { merge: true });
+    noteCount++;
   });
+  if (noteCount > 0) {
+    await noteBatch.commit();
+    writeCount += noteCount;
+  }
 
-  await batch.commit();
   console.log(`✅ Seeded ${writeCount} documents to Firestore`);
   return writeCount;
 }
