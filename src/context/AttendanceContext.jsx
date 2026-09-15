@@ -926,6 +926,9 @@ export function AttendanceProvider({ children }) {
       const deviceCheck = !ignoreDeviceLock && method !== 'MANUAL_OVERRIDE'
         ? validateDeviceSingleAttendance(activityId, memberId, logs)
         : { allowed: true, anomaly: false };
+      if (!deviceCheck.allowed) {
+        return { success: false, message: deviceCheck.message };
+      }
       const deviceWarning = deviceCheck.anomaly ? deviceCheck.message : null;
 
       // Validasi Waktu Otomatis (Belum Dimulai / Dalam Toleransi / Terlambat)
@@ -1203,6 +1206,9 @@ export function AttendanceProvider({ children }) {
       const deviceInfo = getDeviceFingerprint();
       const currentGuestId = guestId || getStableGuestId(activityId, agency, invitedName || 'Pejabat Terkait');
       const deviceCheck = validateDeviceSingleAttendance(activityId, currentGuestId, logs);
+      if (!deviceCheck.allowed) {
+        return { success: false, message: deviceCheck.message };
+      }
 
       // Validasi 1 Tamu / Instansi Hanya Bisa 1x Check-in dan 1x Check-out per Agenda
       const existingGuestLog = logs.find(l => 

@@ -80,9 +80,9 @@ export function getDeviceFingerprint() {
 
 
 /**
- * Tandai apakah perangkat ini sudah dipakai peserta lain pada agenda tertentu.
- * Perangkat bukan faktor tunggal yang membatalkan absensi; caller tetap
- * memvalidasi identitas peserta, agenda, QR, waktu, lokasi, dan riwayat.
+ * Cegah satu perangkat membuat presensi untuk peserta berbeda pada agenda yang sama.
+ * Scanner petugas dapat melewati pemeriksaan ini secara eksplisit melalui
+ * ignoreDeviceLock di caller.
  * @param {string} activityId 
  * @param {string} memberId 
  * @param {Array} attendanceLogs 
@@ -100,10 +100,10 @@ export function validateDeviceSingleAttendance(activityId, memberId, attendanceL
 
   if (duplicateDeviceLog) {
     return {
-      allowed: true,
+      allowed: false,
       anomaly: true,
       previousName: duplicateDeviceLog.memberName || duplicateDeviceLog.guestName || 'Peserta Lain',
-      message: `Perangkat ini juga digunakan untuk absensi atas nama "${duplicateDeviceLog.memberName || duplicateDeviceLog.guestName || 'Peserta Lain'}" pada agenda yang sama. Absensi tetap diproses dan ditandai untuk pemeriksaan.`
+      message: `Perangkat ini sudah digunakan untuk absensi atas nama "${duplicateDeviceLog.memberName || duplicateDeviceLog.guestName || 'Peserta Lain'}" pada agenda yang sama.`
     };
   }
 
