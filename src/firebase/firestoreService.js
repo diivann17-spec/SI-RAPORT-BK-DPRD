@@ -14,10 +14,8 @@ import {
   collection,
   doc,
   getDocs,
-  getDoc,
   addDoc,
   setDoc,
-  updateDoc,
   deleteDoc,
   query,
   where,
@@ -26,7 +24,7 @@ import {
   onSnapshot,
   serverTimestamp,
   writeBatch,
-  Timestamp
+  runTransaction
 } from 'firebase/firestore';
 import { db } from './config';
 
@@ -126,30 +124,9 @@ export async function fetchAttendanceLogs(activityId = null) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
-/** Catat Absensi baru atau update yang sudah ada */
+/** Catat absensi baru atau update check-out pada dokumen yang sama. */
 export async function saveAttendanceLog(logData) {
   const { id, ...data } = logData;
-  
-  // Cek apakah sudah ada absensi untuk member + kegiatan ini
-  if (!id) {
-    const existingQ = query(
-      collection(db, COLLECTIONS.ATTENDANCE_LOGS),
-      where('activityId', '==', data.activityId),
-      where('memberId', '==', data.memberId),
-      limit(1)
-    );
-    const existingSnap = await getDocs(existingQ);
-    
-    if (!existingSnap.empty) {
-      // Update yang sudah ada
-      const existingId = existingSnap.docs[0].id;
-      await updateDoc(doc(db, COLLECTIONS.ATTENDANCE_LOGS, existingId), {
-        ...data,
-        updatedAt: serverTimestamp()
-      });
-      return existingId;
-    }
-  }
 
   if (id) {
     await setDoc(doc(db, COLLECTIONS.ATTENDANCE_LOGS, id), {
@@ -158,12 +135,22 @@ export async function saveAttendanceLog(logData) {
     }, { merge: true });
     return id;
   } else {
-    const ref = await addDoc(collection(db, COLLECTIONS.ATTENDANCE_LOGS), {
-      ...data,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+    if (!data.activityId || !data.participantId) {
+      throw new Error('Absensi membutuhkan activityId dan participantId.');
+    }
+    const prefix = data.participantType === 'EXTERNAL' ? 'ATT-GST' : 'ATT';
+    const stableId = `${prefix}-${data.activityId}-${data.participantId}`;
+    await runTransaction(db, async (transaction) => {
+      const attendanceRef = doc(db, COLLECTIONS.ATTENDANCE_LOGS, stableId);
+      const existingSnapshot = await transaction.get(attendanceRef);
+      if (existingSnapshot.exists()) throw new Error('DUPLICATE_ATTENDANCE');
+      transaction.set(attendanceRef, {
+        ...data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
     });
-    return ref.id;
+    return stableId;
   }
 }
 

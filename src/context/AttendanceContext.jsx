@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   collection, doc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
-  query, orderBy, onSnapshot, serverTimestamp, where, limit, waitForPendingWrites
+  query, orderBy, onSnapshot, serverTimestamp, where, limit, waitForPendingWrites,
+  runTransaction
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { getRaportCategory, getDisciplineGrade, calculateAttendanceStatus } from '../utils/raportUtils';
@@ -186,7 +187,7 @@ export function AttendanceProvider({ children }) {
     try { return JSON.parse(localStorage.getItem('siraport_leave_requests')) || []; } catch (e) { return []; }
   });
   const [loading, setLoading] = useState(false);
-  const [syncStatus, setSyncStatus] = useState('synced');
+  const [syncStatus, setSyncStatus] = useState('saved');
 
   // Sync to localStorage
   useEffect(() => {
@@ -459,8 +460,12 @@ export function AttendanceProvider({ children }) {
           return bTs.localeCompare(aTs);
         });
         setLogs(nextLogs);
+        setSyncStatus('saved');
         try { localStorage.setItem('siraport_logs', JSON.stringify(nextLogs)); } catch (e) {}
-      }, err => console.warn('Firestore logs fallback:', err.message)));
+      }, err => {
+        setSyncStatus('failed');
+        console.warn('Firestore logs fallback:', err.message);
+      }));
 
       unsubs.push(onSnapshot(collection(db, COL.DELETED_LOGS), (snap) => {
         const remoteDeletedIds = snap.docs.map(d => d.id);
@@ -889,14 +894,19 @@ export function AttendanceProvider({ children }) {
       const remoteWriteResult = await safeDbWrite(
         async () => {
           setSyncStatus('syncing');
-          await setDoc(doc(db, COL.LOGS, newLog.id), { ...newLog, createdAt: serverTimestamp() }, { merge: true });
+          await runTransaction(db, async (transaction) => {
+            const logRef = doc(db, COL.LOGS, newLog.id);
+            const existingSnapshot = await transaction.get(logRef);
+            if (existingSnapshot.exists()) throw new Error('DUPLICATE_ATTENDANCE');
+            transaction.set(logRef, { ...newLog, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+          });
           await waitForPendingWrites(db);
         },
         5000,
         'Absensi gagal disimpan ke Firestore. Periksa koneksi dan hak akses akun.'
       );
       if (!remoteWriteResult.ok) {
-        setSyncStatus('offline');
+        setSyncStatus(remoteWriteResult.timedOut ? 'pending' : 'failed');
         if (remoteWriteResult.timedOut) {
           const localLog = { ...newLog, syncPending: true };
           setLogs(prev => [localLog, ...prev.filter(l => !(l.activityId === activityId && l.memberId === memberId))]);
@@ -910,7 +920,7 @@ export function AttendanceProvider({ children }) {
         }
         return { success: false, message: remoteWriteResult.message };
       }
-      setSyncStatus('synced');
+      setSyncStatus('saved');
 
       setLogs(prev => {
         const nextLogs = [newLog, ...prev.filter(l => !(l.activityId === activityId && l.memberId === memberId))];
@@ -1029,14 +1039,14 @@ export function AttendanceProvider({ children }) {
       const remoteWriteResult = await safeDbWrite(
         async () => {
           setSyncStatus('syncing');
-          await setDoc(doc(db, COL.LOGS, existingLog.id), { ...updatedLog, updatedAt: serverTimestamp() }, { merge: true });
+          await updateDoc(doc(db, COL.LOGS, existingLog.id), { ...updatedLog, updatedAt: serverTimestamp() });
           await waitForPendingWrites(db);
         },
         5000,
         'Check-out gagal disimpan ke Firestore. Periksa koneksi dan hak akses akun.'
       );
       if (!remoteWriteResult.ok) {
-        setSyncStatus('offline');
+        setSyncStatus(remoteWriteResult.timedOut ? 'pending' : 'failed');
         if (remoteWriteResult.timedOut) {
           const localLog = { ...updatedLog, syncPending: true };
           setLogs(previous => previous.map(log => log.id === existingLog.id ? localLog : log));
@@ -1050,7 +1060,7 @@ export function AttendanceProvider({ children }) {
         }
         return { success: false, message: remoteWriteResult.message };
       }
-      setSyncStatus('synced');
+      setSyncStatus('saved');
       setLogs(previous => previous.map(log => log.id === existingLog.id ? updatedLog : log));
       void logAudit({ action: 'ATTENDANCE_CHECKOUT', details: `Check-out ${attendeeName} pada agenda ${activity.title}: ${checkoutStatus}, durasi ${durationMinutes} menit. Sebelum: check-in ${existingLog.checkInAt || existingLog.timestamp}, status ${existingLog.status || '-'}; Sesudah: check-out ${updatedLog.checkOutAt}, status ${checkoutStatus}${anomalies.length ? `; ANOMALI: ${anomalies.join(', ')}` : ''}`, method, deviceInfo });
       return { success: true, log: updatedLog };
@@ -1179,14 +1189,19 @@ export function AttendanceProvider({ children }) {
       const remoteWriteResult = await safeDbWrite(
         async () => {
           setSyncStatus('syncing');
-          await setDoc(doc(db, COL.LOGS, newLog.id), { ...newLog, createdAt: serverTimestamp() }, { merge: true });
+          await runTransaction(db, async (transaction) => {
+            const logRef = doc(db, COL.LOGS, newLog.id);
+            const existingSnapshot = await transaction.get(logRef);
+            if (existingSnapshot.exists()) throw new Error('DUPLICATE_ATTENDANCE');
+            transaction.set(logRef, { ...newLog, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+          });
           await waitForPendingWrites(db);
         },
         5000,
         'Absensi tamu gagal disimpan ke Firestore. Periksa koneksi dan hak akses akun.'
       );
       if (!remoteWriteResult.ok) {
-        setSyncStatus('offline');
+        setSyncStatus(remoteWriteResult.timedOut ? 'pending' : 'failed');
         if (remoteWriteResult.timedOut) {
           const localLog = { ...newLog, syncPending: true };
           setLogs(prev => [localLog, ...prev.filter(l => !(l.activityId === activityId && l.guestId === currentGuestId))]);
@@ -1200,7 +1215,7 @@ export function AttendanceProvider({ children }) {
         }
         return { success: false, message: remoteWriteResult.message };
       }
-      setSyncStatus('synced');
+      setSyncStatus('saved');
 
       setLogs(prev => {
         const nextLogs = [newLog, ...prev.filter(l => !(l.activityId === activityId && l.guestId === currentGuestId))];

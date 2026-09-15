@@ -103,9 +103,9 @@ export default function Navbar({ onOpenMenu, onOpenNotifications }) {
             </div>
 
             {/* Live Clock WIB (Hidden on Mobile) */}
-            <div className={`hidden md:flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-bold ${syncStatus === 'synced' ? 'border-emerald-800 bg-emerald-950/70 text-emerald-300' : syncStatus === 'syncing' ? 'border-amber-800 bg-amber-950/70 text-amber-300' : 'border-rose-800 bg-rose-950/70 text-rose-300'}`} title="Status koneksi dan sinkronisasi Firestore">
+            <div className={`hidden md:flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-bold ${syncStatus === 'saved' ? 'border-emerald-800 bg-emerald-950/70 text-emerald-300' : syncStatus === 'syncing' || syncStatus === 'pending' ? 'border-amber-800 bg-amber-950/70 text-amber-300' : 'border-rose-800 bg-rose-950/70 text-rose-300'}`} title="Status koneksi dan sinkronisasi Firestore">
               <span className="h-1.5 w-1.5 rounded-full bg-current" />
-              {syncStatus === 'synced' ? 'Tersinkron' : syncStatus === 'syncing' ? 'Menyinkronkan' : syncStatus === 'offline' ? 'Offline' : 'Belum tersambung'}
+              {syncStatus === 'saved' ? 'Tersimpan' : syncStatus === 'pending' || syncStatus === 'syncing' ? 'Menunggu Sinkronisasi' : 'Gagal Disimpan'}
             </div>
 
             <div className="hidden lg:flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 text-xs font-mono text-emerald-300">

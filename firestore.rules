@@ -110,7 +110,11 @@ service cloud.firestore {
         ((!request.resource.data.keys().hasAny(['guestId']) && !resource.data.keys().hasAny(['guestId'])) ||
           request.resource.data.guestId == resource.data.guestId) &&
         request.resource.data.checkInAt == resource.data.checkInAt &&
-        request.resource.data.deviceId == resource.data.deviceId;
+        request.resource.data.deviceId == resource.data.deviceId &&
+        request.resource.data.deviceType == resource.data.deviceType &&
+        request.resource.data.deviceOS == resource.data.deviceOS &&
+        request.resource.data.deviceBrowser == resource.data.deviceBrowser &&
+        request.resource.data.method == resource.data.method;
     }
 
     function canCreateStaffAttendance() {
