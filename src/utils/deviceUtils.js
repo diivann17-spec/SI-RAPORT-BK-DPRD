@@ -80,11 +80,13 @@ export function getDeviceFingerprint() {
 
 
 /**
- * Validasi apakah perangkat ini sudah pernah absen pada agenda tertentu
+ * Tandai apakah perangkat ini sudah dipakai peserta lain pada agenda tertentu.
+ * Perangkat bukan faktor tunggal yang membatalkan absensi; caller tetap
+ * memvalidasi identitas peserta, agenda, QR, waktu, lokasi, dan riwayat.
  * @param {string} activityId 
  * @param {string} memberId 
  * @param {Array} attendanceLogs 
- * @returns {{ allowed: boolean, previousMemberName?: string, message?: string }}
+ * @returns {{ allowed: boolean, anomaly: boolean, previousMemberName?: string, message?: string }}
  */
 export function validateDeviceSingleAttendance(activityId, memberId, attendanceLogs = []) {
   const currentDevice = getDeviceFingerprint();
@@ -98,11 +100,12 @@ export function validateDeviceSingleAttendance(activityId, memberId, attendanceL
 
   if (duplicateDeviceLog) {
     return {
-      allowed: false,
+      allowed: true,
+      anomaly: true,
       previousName: duplicateDeviceLog.memberName || duplicateDeviceLog.guestName || 'Peserta Lain',
-      message: `Perangkat ini sudah digunakan untuk absensi atas nama "${duplicateDeviceLog.memberName || duplicateDeviceLog.guestName || 'Peserta Lain'}". Aturan sistem: 1 Perangkat hanya 1x Absensi per Agenda.`
+      message: `Perangkat ini juga digunakan untuk absensi atas nama "${duplicateDeviceLog.memberName || duplicateDeviceLog.guestName || 'Peserta Lain'}" pada agenda yang sama. Absensi tetap diproses dan ditandai untuk pemeriksaan.`
     };
   }
 
-  return { allowed: true };
+  return { allowed: true, anomaly: false };
 }

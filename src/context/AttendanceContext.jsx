@@ -44,6 +44,9 @@ const getComparableTimestamp = (value) => {
 
 const getActivityStatusKey = (activity) => String(activity?.status || 'ACTIVE').trim().toUpperCase();
 
+const getAttendanceDocumentId = (activityId, participantId, participantType = 'INTERNAL') =>
+  `${participantType === 'EXTERNAL' ? 'ATT-GST' : 'ATT'}-${activityId}-${participantId}`;
+
 const validateAttendanceActivity = (activity) => {
   const status = getActivityStatusKey(activity);
   if (['CANCELLED', 'DIBATALKAN', 'CANCELED'].includes(status)) {
@@ -183,6 +186,7 @@ export function AttendanceProvider({ children }) {
     try { return JSON.parse(localStorage.getItem('siraport_leave_requests')) || []; } catch (e) { return []; }
   });
   const [loading, setLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('synced');
 
   // Sync to localStorage
   useEffect(() => {
@@ -576,7 +580,7 @@ export function AttendanceProvider({ children }) {
   };
 
   // ─── Audit Trail ─────────────────────────────────────────────────────────
-  const logAudit = useCallback(async ({ action, details, method }) => {
+  const logAudit = useCallback(async ({ action, details, method, deviceInfo = null }) => {
     try {
       const newAudit = {
         id: `AUD-${Date.now()}`,
@@ -586,6 +590,11 @@ export function AttendanceProvider({ children }) {
         action,
         details,
         method: method || 'SYSTEM',
+        deviceId: deviceInfo?.deviceId || null,
+        deviceType: deviceInfo?.deviceType || null,
+        deviceOS: deviceInfo?.os || null,
+        deviceBrowser: deviceInfo?.browser || null,
+        accessAt: deviceInfo?.recordedAt || new Date().toISOString(),
       };
       setAuditLogs(prev => [newAudit, ...prev]);
 
@@ -808,12 +817,10 @@ export function AttendanceProvider({ children }) {
 
       // Validasi 1 Perangkat 1x Absensi (Anti-Titip Absen)
       const deviceInfo = getDeviceFingerprint();
-      if (!ignoreDeviceLock && method !== 'MANUAL_OVERRIDE') {
-        const deviceCheck = validateDeviceSingleAttendance(activityId, memberId, logs);
-        if (!deviceCheck.allowed) {
-          return { success: false, message: deviceCheck.message, isDeviceBlocked: true };
-        }
-      }
+      const deviceCheck = !ignoreDeviceLock && method !== 'MANUAL_OVERRIDE'
+        ? validateDeviceSingleAttendance(activityId, memberId, logs)
+        : { allowed: true, anomaly: false };
+      const deviceWarning = deviceCheck.anomaly ? deviceCheck.message : null;
 
       // Validasi Waktu Otomatis (Belum Dimulai / Dalam Toleransi / Terlambat)
       let calculatedStatus = status;
@@ -839,7 +846,7 @@ export function AttendanceProvider({ children }) {
       const isPersonnel = member.type === 'PERSONNEL' || String(memberId).startsWith('PERSONNEL-') || activity.participantTypes?.[memberId] === 'PERSONNEL';
       const checkInAt = new Date().toISOString();
       const newLog = {
-        id: `ATT-${Date.now()}`,
+        id: getAttendanceDocumentId(activityId, memberId),
         activityId,
         agendaId: activityId,
         roomId: activity.roomId || null,
@@ -874,9 +881,14 @@ export function AttendanceProvider({ children }) {
         sptFile,
         note: note || diffNote || `Absensi ${calculatedStatus}`
       };
+      if (deviceWarning) {
+        newLog.deviceAnomaly = true;
+        newLog.deviceAnomalyMessage = deviceWarning;
+      }
 
       const remoteWriteResult = await safeDbWrite(
         async () => {
+          setSyncStatus('syncing');
           await setDoc(doc(db, COL.LOGS, newLog.id), { ...newLog, createdAt: serverTimestamp() }, { merge: true });
           await waitForPendingWrites(db);
         },
@@ -885,6 +897,17 @@ export function AttendanceProvider({ children }) {
       );
       if (!remoteWriteResult.ok) {
         setSyncStatus('offline');
+        if (remoteWriteResult.timedOut) {
+          const localLog = { ...newLog, syncPending: true };
+          setLogs(prev => [localLog, ...prev.filter(l => !(l.activityId === activityId && l.memberId === memberId))]);
+          void logAudit({
+            action: 'ATTENDANCE_RECORDED_OFFLINE',
+            details: `Presensi ${member.name} pada agenda "${activity.title}" tersimpan lokal dan menunggu sinkronisasi.`,
+            method,
+            deviceInfo,
+          });
+          return { success: true, log: localLog, warning: 'Absensi tersimpan di perangkat dan menunggu sinkronisasi saat koneksi kembali.' };
+        }
         return { success: false, message: remoteWriteResult.message };
       }
       setSyncStatus('synced');
@@ -902,13 +925,15 @@ export function AttendanceProvider({ children }) {
 
       void logAudit({
         action: 'ATTENDANCE_RECORDED',
-        details: `${previousLog ? `Perubahan status ${previousLog.status || 'Belum Hadir'} menjadi ${calculatedStatus}` : `Presensi baru [${calculatedStatus}]`} untuk ${member.name} pada agenda "${activity.title}" via ${method}${note ? ` — Alasan: ${note}` : ''}. Sebelum: ${previousLog?.status || 'Belum ada'}; Sesudah: ${calculatedStatus}`,
+        details: `${previousLog ? `Perubahan status ${previousLog.status || 'Belum Hadir'} menjadi ${calculatedStatus}` : `Presensi baru [${calculatedStatus}]`} untuk ${member.name} pada agenda "${activity.title}" via ${method}${note ? ` — Alasan: ${note}` : ''}. Sebelum: ${previousLog?.status || 'Belum ada'}; Sesudah: ${calculatedStatus}${deviceWarning ? `; PERINGATAN PERANGKAT: ${deviceWarning}` : ''}`,
         method,
+        deviceInfo,
       });
 
       return {
         success: true,
         log: newLog,
+        warning: deviceWarning,
       };
     } catch (err) {
       return { success: false, message: err.message };
@@ -969,6 +994,7 @@ export function AttendanceProvider({ children }) {
       }
 
       const attendeeName = existingLog.memberName || existingLog.guestName || existingLog.invitedName || 'Peserta';
+      const deviceInfo = getDeviceFingerprint();
       const checkInAt = new Date(existingLog.checkInAt || existingLog.timestamp);
       const checkOutAt = new Date();
       const durationMinutes = Math.max(0, Math.round((checkOutAt - checkInAt) / 60000));
@@ -1002,6 +1028,7 @@ export function AttendanceProvider({ children }) {
 
       const remoteWriteResult = await safeDbWrite(
         async () => {
+          setSyncStatus('syncing');
           await setDoc(doc(db, COL.LOGS, existingLog.id), { ...updatedLog, updatedAt: serverTimestamp() }, { merge: true });
           await waitForPendingWrites(db);
         },
@@ -1010,11 +1037,22 @@ export function AttendanceProvider({ children }) {
       );
       if (!remoteWriteResult.ok) {
         setSyncStatus('offline');
+        if (remoteWriteResult.timedOut) {
+          const localLog = { ...updatedLog, syncPending: true };
+          setLogs(previous => previous.map(log => log.id === existingLog.id ? localLog : log));
+          void logAudit({
+            action: 'ATTENDANCE_CHECKOUT_OFFLINE',
+            details: `Check-out ${attendeeName} pada agenda "${activity.title}" tersimpan lokal dan menunggu sinkronisasi.`,
+            method,
+            deviceInfo,
+          });
+          return { success: true, log: localLog, warning: 'Check-out tersimpan di perangkat dan menunggu sinkronisasi saat koneksi kembali.' };
+        }
         return { success: false, message: remoteWriteResult.message };
       }
       setSyncStatus('synced');
       setLogs(previous => previous.map(log => log.id === existingLog.id ? updatedLog : log));
-      void logAudit({ action: 'ATTENDANCE_CHECKOUT', details: `Check-out ${attendeeName} pada agenda ${activity.title}: ${checkoutStatus}, durasi ${durationMinutes} menit. Sebelum: check-in ${existingLog.checkInAt || existingLog.timestamp}, status ${existingLog.status || '-'}; Sesudah: check-out ${updatedLog.checkOutAt}, status ${checkoutStatus}${anomalies.length ? `; ANOMALI: ${anomalies.join(', ')}` : ''}`, method });
+      void logAudit({ action: 'ATTENDANCE_CHECKOUT', details: `Check-out ${attendeeName} pada agenda ${activity.title}: ${checkoutStatus}, durasi ${durationMinutes} menit. Sebelum: check-in ${existingLog.checkInAt || existingLog.timestamp}, status ${existingLog.status || '-'}; Sesudah: check-out ${updatedLog.checkOutAt}, status ${checkoutStatus}${anomalies.length ? `; ANOMALI: ${anomalies.join(', ')}` : ''}`, method, deviceInfo });
       return { success: true, log: updatedLog };
     } catch (err) {
       return { success: false, message: err.message };
@@ -1053,6 +1091,7 @@ export function AttendanceProvider({ children }) {
 
       const deviceInfo = getDeviceFingerprint();
       const currentGuestId = guestId || `GST-${Date.now()}`;
+      const deviceCheck = validateDeviceSingleAttendance(activityId, currentGuestId, logs);
 
       // Validasi 1 Tamu / Instansi Hanya Bisa 1x Check-in dan 1x Check-out per Agenda
       const existingGuestLog = logs.find(l => 
@@ -1100,7 +1139,7 @@ export function AttendanceProvider({ children }) {
 
       const checkInAt = new Date().toISOString();
       const newLog = {
-        id: `ATT-GST-${Date.now()}`,
+        id: getAttendanceDocumentId(activityId, currentGuestId, 'EXTERNAL'),
         activityId,
         agendaId: activityId,
         roomId: activity.roomId || null,
@@ -1131,11 +1170,15 @@ export function AttendanceProvider({ children }) {
         operatorName: operatorName || currentUser?.name || 'Meja Tamu OPD',
         deviceId: deviceInfo.deviceId,
         deviceType: deviceInfo.deviceType,
+        deviceOS: deviceInfo.os,
+        deviceBrowser: deviceInfo.browser,
+        ...(deviceCheck.anomaly ? { deviceAnomaly: true, deviceAnomalyMessage: deviceCheck.message } : {}),
         note: note || (isRepresented ? `Dihadiri oleh perwakilan: ${representativeName} (${representativePosition})` : 'Hadir langsung')
       };
 
       const remoteWriteResult = await safeDbWrite(
         async () => {
+          setSyncStatus('syncing');
           await setDoc(doc(db, COL.LOGS, newLog.id), { ...newLog, createdAt: serverTimestamp() }, { merge: true });
           await waitForPendingWrites(db);
         },
@@ -1144,6 +1187,17 @@ export function AttendanceProvider({ children }) {
       );
       if (!remoteWriteResult.ok) {
         setSyncStatus('offline');
+        if (remoteWriteResult.timedOut) {
+          const localLog = { ...newLog, syncPending: true };
+          setLogs(prev => [localLog, ...prev.filter(l => !(l.activityId === activityId && l.guestId === currentGuestId))]);
+          void logAudit({
+            action: 'GUEST_CHECKIN_OFFLINE',
+            details: `Check-in tamu ${agency} pada agenda "${activity.title}" tersimpan lokal dan menunggu sinkronisasi.`,
+            method: 'GUEST_CHECKIN',
+            deviceInfo,
+          });
+          return { success: true, log: localLog, warning: 'Absensi tamu tersimpan di perangkat dan menunggu sinkronisasi saat koneksi kembali.' };
+        }
         return { success: false, message: remoteWriteResult.message };
       }
       setSyncStatus('synced');
@@ -1161,13 +1215,15 @@ export function AttendanceProvider({ children }) {
 
       void logAudit({
         action: 'GUEST_CHECKIN',
-        details: `Check-in Tamu Eksternal [${agency}] - ${isRepresented ? `Diwakili: ${representativeName}` : invitedName} pada "${activity.title}"`,
-        method: 'GUEST_CHECKIN'
+        details: `Check-in Tamu Eksternal [${agency}] - ${isRepresented ? `Diwakili: ${representativeName}` : invitedName} pada "${activity.title}"${deviceCheck.anomaly ? `; PERINGATAN PERANGKAT: ${deviceCheck.message}` : ''}`,
+        method: 'GUEST_CHECKIN',
+        deviceInfo,
       });
 
       return {
         success: true,
         log: newLog,
+        warning: deviceCheck.anomaly ? deviceCheck.message : null,
       };
     } catch (err) {
       return { success: false, message: err.message };
@@ -1175,6 +1231,7 @@ export function AttendanceProvider({ children }) {
   };
 
   const recordManualAttendance = async ({ activityId, memberId, status, note, operatorName, sptNumber, sptDate, sptFile }) => {
+    if (!String(note || '').trim()) return { success: false, message: 'Alasan Absensi Manual wajib diisi dan dicatat di Audit Trail.' };
     return recordAttendance({
       activityId,
       memberId,
@@ -1186,7 +1243,7 @@ export function AttendanceProvider({ children }) {
       sptDate,
       sptFile,
       ignoreDeviceLock: true,
-      ignoreDuplicateCheck: true
+      ignoreDuplicateCheck: false
     });
   };
 
@@ -1285,7 +1342,7 @@ export function AttendanceProvider({ children }) {
             operatorName: currentUser?.name || 'Admin BK',
             note: `Pengajuan izin digital ${target.type === 'SAKIT' ? 'sakit' : 'izin'} disetujui${target.reason ? `: ${target.reason}` : ''}`,
             ignoreDeviceLock: true,
-            ignoreDuplicateCheck: true,
+            ignoreDuplicateCheck: false,
           });
 
           if (!attendanceResult.success) {
@@ -1949,7 +2006,7 @@ export function AttendanceProvider({ children }) {
       members, personnel, activities, logs, auditLogs, bkNotes,
       rooms,
       scoreSettings, updateScoreSettings, reportSigners, saveReportSigner, deleteReportSigner,
-      loading, authReady, currentUser, login, logout,
+      loading, syncStatus, authReady, currentUser, login, logout,
       currentRole,
       activeMemberId, setActiveMemberId,
       canManageMembers, isAdmin, isBK,

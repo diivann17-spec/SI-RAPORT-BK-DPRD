@@ -3,7 +3,7 @@ import SplashScreen from '../components/SplashScreen';
 import { useAttendance } from '../context/AttendanceContext';
 import { isWithinRadius, formatDistance } from '../utils/geoUtils';
 import { calculateAttendanceStatus } from '../utils/raportUtils';
-import { getDeviceFingerprint, validateDeviceSingleAttendance } from '../utils/deviceUtils';
+import { getDeviceFingerprint } from '../utils/deviceUtils';
 import {
   QrCode, Clock, MapPin, CheckCircle2,
   AlertTriangle, Users, Building2, ShieldCheck,
@@ -277,14 +277,6 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
         setIsSubmitting(false);
         return;
       }
-      // Validasi 1 HP / Perangkat 1x Absen
-      const deviceCheck = validateDeviceSingleAttendance(selectedActivity.id, selectedMemberId, logs);
-      if (!deviceCheck.allowed) {
-        setSubmitError(deviceCheck.message);
-        setIsSubmitting(false);
-        return;
-      }
-
       res = await recordAttendance({
         activityId: selectedActivity.id,
         memberId: selectedMemberId,

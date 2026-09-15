@@ -55,29 +55,99 @@ service cloud.firestore {
       request.resource.data.participantId is string;
     }
 
+    function activeActivity(activityId) {
+      return get(activityPath(activityId)).data.status in ['ACTIVE', 'BERLANGSUNG', 'ONGOING', 'IN_PROGRESS'];
+    }
+
+    function hasDeviceAuditFields() {
+      return request.resource.data.keys().hasAll([
+        'deviceId',
+        'deviceType',
+        'deviceOS',
+        'deviceBrowser'
+      ]) &&
+      request.resource.data.deviceId is string &&
+      request.resource.data.deviceType is string &&
+      request.resource.data.deviceOS is string &&
+      request.resource.data.deviceBrowser is string &&
+      request.resource.data.deviceId.size() > 0;
+    }
+
+    function validGpsData(activityId) {
+      return request.resource.data.method != 'GPS_ONLINE' ||
+        (request.resource.data.keys().hasAll(['lat', 'lng', 'distanceMeters']) &&
+         request.resource.data.lat is number &&
+         request.resource.data.lng is number &&
+         request.resource.data.distanceMeters is number &&
+         request.resource.data.distanceMeters >= 0 &&
+         request.resource.data.distanceMeters <= get(activityPath(activityId)).data.radiusMeters);
+    }
+
+    function attendanceIdMatches(logId) {
+      return (request.resource.data.participantType == 'EXTERNAL' &&
+        logId == 'ATT-GST-' + request.resource.data.activityId + '-' + request.resource.data.participantId) ||
+        (request.resource.data.participantType != 'EXTERNAL' &&
+        logId == 'ATT-' + request.resource.data.activityId + '-' + request.resource.data.participantId);
+    }
+
+    function validParticipantAssignment(activityId) {
+      return request.resource.data.participantType == 'EXTERNAL' &&
+        request.resource.data.participantStatus == 'EXTERNAL' ||
+        request.resource.data.participantType != 'EXTERNAL' &&
+        request.resource.data.participantStatus in ['WAJIB_HADIR', 'UNDANGAN', 'OPSIONAL'] &&
+        (!get(activityPath(activityId)).data.keys().hasAny(['participantStatuses']) ||
+         !get(activityPath(activityId)).data.participantStatuses.keys().hasAny([request.resource.data.participantId]) ||
+         get(activityPath(activityId)).data.participantStatuses[request.resource.data.participantId] == request.resource.data.participantStatus);
+    }
+
+    function attendanceIdentityUnchanged() {
+      return request.resource.data.activityId == resource.data.activityId &&
+        request.resource.data.agendaId == resource.data.agendaId &&
+        request.resource.data.participantId == resource.data.participantId &&
+        request.resource.data.participantType == resource.data.participantType &&
+        ((!request.resource.data.keys().hasAny(['memberId']) && !resource.data.keys().hasAny(['memberId'])) ||
+          request.resource.data.memberId == resource.data.memberId) &&
+        ((!request.resource.data.keys().hasAny(['guestId']) && !resource.data.keys().hasAny(['guestId'])) ||
+          request.resource.data.guestId == resource.data.guestId) &&
+        request.resource.data.checkInAt == resource.data.checkInAt &&
+        request.resource.data.deviceId == resource.data.deviceId;
+    }
+
     function canCreateStaffAttendance() {
       return (isAdmin() || isBK() || isScanOperator() ||
         (activeAccount() && get(accountPath()).data.memberId == request.resource.data.memberId)) &&
         hasAttendanceIdentityFields() &&
+        activeActivity(request.resource.data.activityId) &&
+        hasDeviceAuditFields() &&
+        validGpsData(request.resource.data.activityId) &&
+        validParticipantAssignment(request.resource.data.activityId) &&
         (request.resource.data.participantType == 'EXTERNAL' ||
-          request.resource.data.memberId == request.resource.data.participantId);
+          (request.resource.data.memberId == request.resource.data.participantId &&
+           (!get(activityPath(request.resource.data.activityId)).data.keys().hasAny(['participantMemberIds']) ||
+            request.resource.data.memberId in get(activityPath(request.resource.data.activityId)).data.participantMemberIds)));
     }
 
     function canCreatePublicGuestAttendance() {
       return isPublicGuest() &&
         hasAttendanceIdentityFields() &&
+        activeActivity(request.resource.data.activityId) &&
+        hasDeviceAuditFields() &&
+        validGpsData(request.resource.data.activityId) &&
+        validParticipantAssignment(request.resource.data.activityId) &&
         request.resource.data.participantType == 'EXTERNAL' &&
-        request.resource.data.invitationToken == get(activityPath(request.resource.data.activityId)).data.qrToken &&
-        get(activityPath(request.resource.data.activityId)).data.status in ['ACTIVE', 'BERLANGSUNG', 'ONGOING', 'IN_PROGRESS'];
+        request.resource.data.invitationToken == get(activityPath(request.resource.data.activityId)).data.qrToken;
     }
 
     function canCreatePublicMemberAttendance() {
       return isPublicGuest() &&
         hasAttendanceIdentityFields() &&
+        activeActivity(request.resource.data.activityId) &&
+        hasDeviceAuditFields() &&
+        validGpsData(request.resource.data.activityId) &&
+        validParticipantAssignment(request.resource.data.activityId) &&
         request.resource.data.participantType == 'INTERNAL' &&
         request.resource.data.memberId == request.resource.data.participantId &&
         request.resource.data.invitationToken == get(activityPath(request.resource.data.activityId)).data.qrToken &&
-        get(activityPath(request.resource.data.activityId)).data.status in ['ACTIVE', 'BERLANGSUNG', 'ONGOING', 'IN_PROGRESS'] &&
         request.resource.data.memberId in get(activityPath(request.resource.data.activityId)).data.participantMemberIds;
     }
 
@@ -205,16 +275,18 @@ service cloud.firestore {
         (activeAccount() &&
          get(accountPath()).data.memberId == resource.data.memberId);
       // Anggota hanya boleh mencatat dirinya sendiri; operator dapat mencatat peserta.
-      allow create: if canCreateStaffAttendance() || canCreatePublicGuestAttendance() || canCreatePublicMemberAttendance();
+      allow create: if (canCreateStaffAttendance() || canCreatePublicGuestAttendance() || canCreatePublicMemberAttendance()) &&
+        attendanceIdMatches(logId);
       // Check-out adalah update pada log yang sama dan dapat dilakukan oleh pemilik atau operator.
-      allow update: if isAdminOrBK() || isScanOperator() ||
+      allow update: if attendanceIdentityUnchanged() &&
+        (isAdminOrBK() || isScanOperator() ||
         (isPublicGuest() && resource.data.participantType == 'EXTERNAL' &&
           request.resource.data.invitationToken == resource.data.invitationToken) ||
         (isPublicGuest() && resource.data.participantType == 'INTERNAL' &&
           request.resource.data.invitationToken == resource.data.invitationToken &&
           request.resource.data.memberId == resource.data.memberId) ||
         (activeAccount() && get(accountPath()).data.memberId == resource.data.memberId &&
-          request.resource.data.memberId == resource.data.memberId);
+          request.resource.data.memberId == resource.data.memberId));
       allow delete: if isAdmin();
     }
 
@@ -275,3 +347,4 @@ service cloud.firestore {
     }
   }
 }
+  
