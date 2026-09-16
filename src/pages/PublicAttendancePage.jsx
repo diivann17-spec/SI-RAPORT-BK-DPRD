@@ -1,14 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import SplashScreen from '../components/SplashScreen';
 import { useAttendance } from '../context/AttendanceContext';
 import { isWithinRadius, formatDistance } from '../utils/geoUtils';
 import { calculateAttendanceStatus } from '../utils/raportUtils';
 import { getDeviceFingerprint } from '../utils/deviceUtils';
+import { saveAttendancePhoto } from '../utils/attendancePhotoStore';
 import {
   QrCode, Clock, MapPin, CheckCircle2,
-  AlertTriangle, Users, Building2, ShieldCheck,
+  AlertTriangle, AlertCircle, Users, Building2, ShieldCheck,
   Send, Loader2, Sparkles, RefreshCw, Wifi, Info,
-  UserCheck, ChevronDown, Smartphone
+  UserCheck, ChevronDown, Smartphone, Camera, SwitchCamera,
+  RotateCcw, Check, Video, HelpCircle
 } from 'lucide-react';
 
 // Logo inline SVG agar tidak bergantung pada file import yang mungkin gagal
@@ -48,6 +50,20 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
   const [invitationToken] = useState(() => new URLSearchParams(window.location.search).get('token') || '');
   const [invitationGuestId] = useState(() => new URLSearchParams(window.location.search).get('guestId') || null);
 
+  // ────── Kamera Anggota DPRD (Wajib Foto) ──────
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const isStartingCameraRef = useRef(false);
+  const [facingMode, setFacingMode] = useState('user'); // 'user' (depan/selfie) | 'environment' (belakang)
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isLivePreviewReady, setIsLivePreviewReady] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [cameraErrorType, setCameraErrorType] = useState(''); // 'PERMISSION_DENIED' | 'NOT_FOUND' | 'IN_USE' | 'INSECURE_CONTEXT' | 'UNSUPPORTED'
+  const [capturedPhoto, setCapturedPhoto] = useState(null);
+  const [isPhotoConfirmed, setIsPhotoConfirmed] = useState(false);
+  const [showCameraGuide, setShowCameraGuide] = useState(false);
+
   // Form Tamu OPD
   const [agency, setAgency] = useState(() => new URLSearchParams(window.location.search).get('agency') || '');
   const [invitedName, setInvitedName] = useState(() => new URLSearchParams(window.location.search).get('name') || '');
@@ -76,6 +92,216 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
   // UI
   const [showActivityPicker, setShowActivityPicker] = useState(false);
   const [showAttendanceSplash, setShowAttendanceSplash] = useState(true);
+
+  // ────── Camera Management ──────
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      try {
+        streamRef.current.getTracks().forEach(track => {
+          try {
+            track.stop();
+          } catch (e) {
+            console.warn('Error stopping track:', e);
+          }
+        });
+      } catch (e) {
+        console.warn('Error cleaning stream:', e);
+      }
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      try {
+        videoRef.current.srcObject = null;
+      } catch (e) {}
+    }
+    setIsCameraActive(false);
+    setIsLivePreviewReady(false);
+  }, []);
+
+  const startCamera = useCallback(async (desiredFacingMode = facingMode) => {
+    // Mencegah multiple request bersamaan (mencegah "page isn't responding")
+    if (isStartingCameraRef.current) return;
+    isStartingCameraRef.current = true;
+
+    stopCamera();
+    setCameraLoading(true);
+    setCameraError('');
+    setCameraErrorType('');
+    setIsLivePreviewReady(false);
+
+    // 1. Cek Secure Context (HTTPS / localhost)
+    if (typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      setCameraError('Akses kamera browser memerlukan koneksi aman (HTTPS). Pastikan situs dibuka melalui HTTPS.');
+      setCameraErrorType('INSECURE_CONTEXT');
+      setCameraLoading(false);
+      isStartingCameraRef.current = false;
+      return;
+    }
+
+    // 2. Cek ketersediaan Web MediaDevices API
+    const hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const legacyGetUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+
+    if (!hasMediaDevices && !legacyGetUserMedia) {
+      setCameraError('Kamera tidak dapat diakses. Pastikan izin kamera untuk situs ini telah diberikan dan gunakan browser terbaru.');
+      setCameraErrorType('UNSUPPORTED');
+      setCameraLoading(false);
+      isStartingCameraRef.current = false;
+      return;
+    }
+
+    // Helper panggil getUserMedia
+    const requestMedia = async (constraints) => {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      }
+      return new Promise((resolve, reject) => {
+        legacyGetUserMedia.call(navigator, constraints, resolve, reject);
+      });
+    };
+
+    let stream = null;
+    let lastError = null;
+
+    // Strategi Fallback Bertingkat (Multi-Perangkat & Multi-Browser):
+    // 1. Coba kamera depan (user) dengan resolusi ideal standard
+    // 2. Coba tanpa resolusi (hanya facingMode)
+    // 3. Coba fallback kamera apa pun (video: true) - kompatibel laptop webcam & browser lama
+    const constraintTiers = [
+      {
+        video: {
+          facingMode: desiredFacingMode,
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 }
+        },
+        audio: false
+      },
+      {
+        video: { facingMode: desiredFacingMode },
+        audio: false
+      },
+      {
+        video: true,
+        audio: false
+      }
+    ];
+
+    for (const constraints of constraintTiers) {
+      try {
+        stream = await requestMedia(constraints);
+        if (stream) break;
+      } catch (err) {
+        lastError = err;
+        // Jika permission ditolak eksplisit oleh user (NotAllowedError / PermissionDeniedError), jangan loop fallback lagi
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          break;
+        }
+      }
+    }
+
+    if (stream) {
+      streamRef.current = stream;
+      if (videoRef.current) {
+        try {
+          videoRef.current.srcObject = stream;
+          // Menggunakan loadedmetadata agar live preview benar-benar siap
+          videoRef.current.onloadedmetadata = () => {
+            if (videoRef.current) {
+              videoRef.current.play().then(() => {
+                setIsLivePreviewReady(true);
+              }).catch(() => {
+                setIsLivePreviewReady(true);
+              });
+            }
+          };
+        } catch (e) {
+          console.warn('Error setting video srcObject:', e);
+        }
+      }
+      setIsCameraActive(true);
+      setCameraLoading(false);
+      isStartingCameraRef.current = false;
+    } else {
+      setCameraLoading(false);
+      setIsCameraActive(false);
+      isStartingCameraRef.current = false;
+
+      const errorName = lastError?.name || '';
+      console.warn('Camera access failed:', lastError);
+
+      if (errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError') {
+        setCameraErrorType('PERMISSION_DENIED');
+        setCameraError('Izin akses kamera belum diberikan atau diblokir oleh browser.');
+      } else if (errorName === 'NotFoundError' || errorName === 'DevicesNotFoundError') {
+        setCameraErrorType('NOT_FOUND');
+        setCameraError('Perangkat kamera (webcam/kamera depan) tidak terdeteksi pada perangkat ini.');
+      } else if (errorName === 'NotReadableError' || errorName === 'TrackStartError') {
+        setCameraErrorType('IN_USE');
+        setCameraError('Kamera sedang digunakan oleh aplikasi/tab lain. Tutup aplikasi lain yang memakai kamera lalu coba lagi.');
+      } else {
+        setCameraErrorType('UNKNOWN');
+        setCameraError('Kamera tidak dapat diakses. Pastikan izin kamera untuk situs ini telah diberikan dan gunakan browser terbaru.');
+      }
+    }
+  }, [facingMode, stopCamera]);
+
+  const toggleFacingMode = () => {
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+    startCamera(nextMode);
+  };
+
+  const handleCapturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Jika kamera depan, cerminkan horizontal agar senatural cermin
+      if (facingMode === 'user') {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setCapturedPhoto(dataUrl);
+      setIsPhotoConfirmed(false);
+      stopCamera();
+    } catch (err) {
+      console.warn('Capture photo failed:', err);
+    }
+  };
+
+  const handleRetakePhoto = () => {
+    setCapturedPhoto(null);
+    setIsPhotoConfirmed(false);
+    startCamera(facingMode);
+  };
+
+  const handleConfirmPhoto = () => {
+    if (!capturedPhoto) return;
+    setIsPhotoConfirmed(true);
+    setSubmitError('');
+  };
+
+  // Aktifkan kamera otomatis saat Anggota DPRD terpilih
+  useEffect(() => {
+    if (participantType === 'INTERNAL' && selectedMemberId && !submitSuccess && !capturedPhoto) {
+      startCamera(facingMode);
+    } else if (participantType === 'EXTERNAL' || !selectedMemberId || submitSuccess) {
+      stopCamera();
+    }
+    return () => {
+      stopCamera();
+    };
+  }, [participantType, selectedMemberId, submitSuccess, startCamera, stopCamera]);
 
   useEffect(() => {
     const splashTimer = setTimeout(() => {
@@ -228,8 +454,28 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
         setSubmitError('Absensi peserta ini sudah selesai. Check-out hanya dapat dilakukan satu kali.');
         return;
       }
-      if (!window.confirm('Konfirmasi Check-out sekarang? Waktu meninggalkan kegiatan akan dicatat otomatis.')) return;
+      if (participantType === 'INTERNAL' && !isPhotoConfirmed) {
+        setSubmitError('Wajib mengambil dan mengonfirmasi foto Anggota DPRD terlebih dahulu sebelum Check-out.');
+        return;
+      }
+      if (!window.confirm('Konfirmasi Check-out sekarang? Waktu meninggalkan kegiatan dan foto dokumentasi akan dicatat otomatis.')) return;
       setIsSubmitting(true);
+
+      let checkoutPhotoRef = null;
+      if (participantType === 'INTERNAL' && capturedPhoto) {
+        try {
+          checkoutPhotoRef = await saveAttendancePhoto({
+            dataUrl: capturedPhoto,
+            activityId: selectedActivity.id,
+            participantId: selectedMemberId,
+            eventType: 'CHECK_OUT',
+            logId: `ATT-${selectedActivity.id}-${selectedMemberId}`
+          });
+        } catch (photoErr) {
+          console.warn('Gagal menyimpan foto checkout lokal:', photoErr);
+        }
+      }
+
       const checkoutResult = participantType === 'EXTERNAL'
         ? await checkoutAttendance({
             activityId: selectedActivity.id,
@@ -245,7 +491,8 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
             memberId: selectedMemberId,
             participantType: 'INTERNAL',
             method: 'QR_AGENDA',
-            operatorName: 'Mandiri via QR Agenda'
+            operatorName: 'Mandiri via QR Agenda',
+            documentationPhotoRef: checkoutPhotoRef
           });
       setIsSubmitting(false);
       if (checkoutResult.success) setSubmitSuccess({ ...checkoutResult.log, warning: checkoutResult.warning || null });
@@ -262,6 +509,17 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
       return;
     }
 
+    if (participantType === 'INTERNAL') {
+      if (!selectedMemberId) {
+        setSubmitError('Pilih nama Anggota DPRD terlebih dahulu.');
+        return;
+      }
+      if (!isPhotoConfirmed || !capturedPhoto) {
+        setSubmitError('Wajib mengambil dan mengonfirmasi foto wajah/kehadiran Anggota Dewan.');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     setSubmitError('');
 
@@ -272,11 +530,21 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
     let res;
 
     if (participantType === 'INTERNAL') {
-      if (!selectedMemberId) {
-        setSubmitError('Pilih nama Anggota DPRD terlebih dahulu.');
-        setIsSubmitting(false);
-        return;
+      let checkInPhotoRef = null;
+      if (capturedPhoto) {
+        try {
+          checkInPhotoRef = await saveAttendancePhoto({
+            dataUrl: capturedPhoto,
+            activityId: selectedActivity.id,
+            participantId: selectedMemberId,
+            eventType: 'CHECK_IN',
+            logId: `ATT-${selectedActivity.id}-${selectedMemberId}`
+          });
+        } catch (photoErr) {
+          console.warn('Gagal menyimpan foto check-in lokal:', photoErr);
+        }
       }
+
       res = await recordAttendance({
         activityId: selectedActivity.id,
         memberId: selectedMemberId,
@@ -284,8 +552,9 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
         operatorName: 'Mandiri via Google Lens / Web Scan',
         lat: currentLat,
         lng: currentLng,
-        distanceMeters: currentDist
-        , invitationToken: invitationToken || selectedActivity.qrToken
+        distanceMeters: currentDist,
+        invitationToken: invitationToken || selectedActivity.qrToken,
+        documentationPhotoRef: checkInPhotoRef
       });
     } else {
       if (!agency.trim() || !invitedName.trim() || !position.trim()) {
@@ -537,6 +806,8 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
                   setSubmitSuccess(null);
                   setSelectedMemberId('');
                   setMemberSearch('');
+                  setCapturedPhoto(null);
+                  setIsPhotoConfirmed(false);
                   setAgency('');
                   setInvitedName('');
                   setPosition('');
@@ -653,6 +924,184 @@ export default function PublicAttendancePage({ initialActivityId, onBackToApp, p
                       <span className="text-emerald-300 font-semibold">
                         {members.find(m => m.id === selectedMemberId)?.name}
                       </span>
+                    </div>
+                  )}
+
+                  {/* ── MODUL KAMERA WAJIB FOTO ANGGOTA DPRD (CHECK-IN & CHECK-OUT) ── */}
+                  {selectedMemberId && (
+                    <div className="p-4 bg-slate-950/80 border border-emerald-500/40 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Camera className="w-4 h-4 text-emerald-400" />
+                          <span className="font-bold text-white text-xs">
+                            {alreadyCheckedIn ? 'Foto Wajib Check-out Anggota' : 'Foto Wajib Kehadiran Anggota Dewan'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setShowCameraGuide(!showCameraGuide)}
+                            className="text-[10px] text-slate-400 hover:text-emerald-400 flex items-center gap-1 underline underline-offset-2 transition"
+                          >
+                            <HelpCircle className="w-3 h-3" />
+                            <span>Bantuan Izin</span>
+                          </button>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800 font-extrabold">
+                            Wajib Foto
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Panduan Izin Kamera (Jika Diperlukan User) */}
+                      {showCameraGuide && (
+                        <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl text-[11px] space-y-2 text-slate-300">
+                          <p className="font-bold text-emerald-400 flex items-center gap-1">
+                            <ShieldCheck className="w-3.5 h-3.5" /> Cara Mengizinkan Akses Kamera:
+                          </p>
+                          <ul className="list-disc pl-4 space-y-1 text-[10px] text-slate-400">
+                            <li><strong>Chrome / Edge (Android & PC):</strong> Klik ikon gembok/setelan di kiri bilah alamat URL &rarr; pilih <em>Izin Situs (Permissions)</em> &rarr; Aktifkan <strong>Kamera</strong>.</li>
+                            <li><strong>Safari (iPhone / iPad):</strong> Buka <em>Pengaturan iPhone</em> &rarr; <em>Safari</em> &rarr; <em>Kamera</em> &rarr; Pilih <strong>Izinkan (Allow)</strong>.</li>
+                            <li>Pastikan aplikasi lain (seperti Zoom/Meet/WhatsApp) tidak sedang memakai kamera.</li>
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Viewfinder Video Kamera / Preview Hasil Foto */}
+                      <div className="relative aspect-4/3 w-full bg-black rounded-xl overflow-hidden border border-slate-700 flex items-center justify-center shadow-inner">
+                        {capturedPhoto ? (
+                          <div className="relative w-full h-full">
+                            <img
+                              src={capturedPhoto}
+                              alt="Hasil Foto Anggota"
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute top-2 right-2 bg-emerald-950/80 border border-emerald-500/80 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Foto Terambil
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <video
+                              ref={videoRef}
+                              playsInline
+                              muted
+                              autoPlay
+                              className={`w-full h-full object-cover ${facingMode === 'user' ? 'transform -scale-x-100' : ''}`}
+                            />
+
+                            {/* Loading State */}
+                            {cameraLoading && (
+                              <div className="absolute inset-0 bg-slate-950/85 flex flex-col items-center justify-center gap-2 text-emerald-400 z-10">
+                                <Loader2 className="w-7 h-7 animate-spin text-emerald-400" />
+                                <span className="text-xs font-semibold text-slate-200">Meminta Akses Kamera...</span>
+                                <span className="text-[10px] text-slate-400 text-center px-4">Pilih "Izinkan / Allow" jika muncul pop-up izin di browser Anda</span>
+                              </div>
+                            )}
+
+                            {/* Error State & Fallback Prompt */}
+                            {cameraError && !cameraLoading && (
+                              <div className="absolute inset-0 bg-slate-950/95 p-4 flex flex-col items-center justify-center text-center gap-2.5 text-rose-300 text-xs z-10">
+                                <div className="p-2.5 rounded-full bg-rose-900/40 border border-rose-800 text-rose-400">
+                                  <AlertCircle className="w-6 h-6" />
+                                </div>
+                                <p className="font-semibold text-slate-200 px-2 leading-relaxed">{cameraError}</p>
+                                <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => startCamera(facingMode)}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                    <span>Coba Izinkan Kamera Lagi</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowCameraGuide(true)}
+                                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs border border-slate-700 transition"
+                                  >
+                                    Lihat Panduan
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Overlay Frame Guide ketika Live Preview Siap */}
+                            {!cameraLoading && !cameraError && (
+                              <>
+                                <div className="absolute inset-4 border-2 border-dashed border-emerald-400/50 rounded-2xl pointer-events-none flex items-center justify-center">
+                                  <span className="text-[10px] text-emerald-300 bg-slate-950/80 backdrop-blur-xs px-3 py-1 rounded-full border border-emerald-500/30">
+                                    Posisikan wajah di dalam bingkai
+                                  </span>
+                                </div>
+                                {!isLivePreviewReady && isCameraActive && (
+                                  <div className="absolute bottom-2 left-2 right-2 text-center text-[10px] text-amber-300 bg-slate-900/80 py-0.5 rounded border border-amber-500/30">
+                                    Menyiapkan tampilan langsung kamera...
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* Kontrol Kamera & Konfirmasi */}
+                      <div className="space-y-2">
+                        {!capturedPhoto ? (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={toggleFacingMode}
+                              disabled={cameraLoading || !isCameraActive}
+                              className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition shrink-0 disabled:opacity-40"
+                              title="Ganti Kamera Depan / Belakang"
+                            >
+                              <SwitchCamera className="w-4 h-4 text-emerald-400" />
+                              <span className="hidden sm:inline">Ganti Kamera</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCapturePhoto}
+                              disabled={cameraLoading || !isCameraActive || !isLivePreviewReady}
+                              className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-lg transition"
+                            >
+                              <Camera className="w-4 h-4" />
+                              <span>{isLivePreviewReady ? 'Ambil Foto Anggota' : 'Menunggu Kamera...'}</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={handleRetakePhoto}
+                                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition"
+                              >
+                                <RotateCcw className="w-4 h-4 text-amber-400" />
+                                <span>Ambil Ulang</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleConfirmPhoto}
+                                disabled={isPhotoConfirmed}
+                                className={`flex-1 py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow transition ${
+                                  isPhotoConfirmed
+                                    ? 'bg-emerald-900/60 border border-emerald-500 text-emerald-300'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                }`}
+                              >
+                                <Check className="w-4 h-4" />
+                                <span>{isPhotoConfirmed ? '✓ Foto Dikonfirmasi' : 'Gunakan Foto Ini'}</span>
+                              </button>
+                            </div>
+                            {isPhotoConfirmed && (
+                              <p className="text-[11px] text-emerald-400 font-bold text-center flex items-center justify-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Foto terverifikasi. Silakan tekan tombol Konfirmasi Presensi di bawah.</span>
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

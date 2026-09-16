@@ -11,6 +11,7 @@ import { DEFAULT_ROOMS, findRoomConflict } from '../utils/roomUtils';
 import { matchAKDCategory, memberHasAKD } from '../utils/akdUtils';
 import { authService } from '../firebase/authService';
 import { createAccount, updateAccount, ACCOUNT_ROLES, ACCOUNT_STATUS } from '../firebase/accountService';
+import { removeAttendancePhoto as removeLocalAttendancePhoto } from '../utils/attendancePhotoStore';
 // Mock data dihapus — app mulai kosong, data dari Firestore / input manual
 
 const AttendanceContext = createContext();
@@ -363,6 +364,12 @@ export function AttendanceProvider({ children }) {
   // Instead: Load only AFTER session verification di authService
   const [currentUser, setCurrentUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
+  const [currentRole, setCurrentRole] = useState(
+    () => normalizeRole('PETUGAS_BK')
+  );
+  const [activeMemberId, setActiveMemberId] = useState(
+    () => 'DPRD-001'
+  );
 
   useEffect(() => {
     return authService.subscribe((session) => {
@@ -390,13 +397,6 @@ export function AttendanceProvider({ children }) {
       if (session.memberId) setActiveMemberId(session.memberId);
     });
   }, []);
-
-  const [currentRole, setCurrentRole] = useState(
-    () => normalizeRole(currentUser?.role || 'PETUGAS_BK')
-  );
-  const [activeMemberId, setActiveMemberId] = useState(
-    () => currentUser?.memberId || 'DPRD-001'
-  );
 
   useEffect(() => {
     if (!authReady) return undefined;
@@ -859,7 +859,8 @@ export function AttendanceProvider({ children }) {
     sptFile = null,
     ignoreDeviceLock = false,
     ignoreDuplicateCheck = false,
-    invitationToken = null
+    invitationToken = null,
+    documentationPhotoRef = null
   }) => {
     try {
       if (method === 'MANUAL_OVERRIDE' && !['SECRETARIAT_ADMIN', 'PETUGAS_BK', 'PETUGAS_SCAN'].includes(currentRole)) {
@@ -870,6 +871,7 @@ export function AttendanceProvider({ children }) {
       const previousLog = logs.find(l => l.activityId === activityId && l.memberId === memberId);
       if (!member) return { success: false, message: 'Data peserta internal tidak ditemukan.' };
       if (!activity) return { success: false, message: 'Agenda Kegiatan tidak ditemukan.' };
+      if (member.statusActive === false) return { success: false, message: 'Anggota berstatus tidak aktif dan tidak dapat melakukan absensi.' };
       const activityValidation = validateAttendanceActivity(activity);
       if (!activityValidation.allowed) return { success: false, message: activityValidation.message };
       if (activity.reportLocked && method !== 'MANUAL_OVERRIDE') {
@@ -956,6 +958,7 @@ export function AttendanceProvider({ children }) {
       const checkInAt = new Date().toISOString();
       const newLog = {
         id: getAttendanceDocumentId(activityId, memberId),
+        attendanceId: getAttendanceDocumentId(activityId, memberId),
         activityId,
         agendaId: activityId,
         roomId: activity.roomId || null,
@@ -986,6 +989,10 @@ export function AttendanceProvider({ children }) {
         deviceType: deviceInfo.deviceType,
         deviceOS: deviceInfo.os,
         deviceBrowser: deviceInfo.browser,
+        documentationPhotoRef: documentationPhotoRef || null,
+        checkInPhotoId: documentationPhotoRef || null,
+        documentationPhotoAt: documentationPhotoRef ? checkInAt : null,
+        documentationPhotoType: documentationPhotoRef ? 'CHECK_IN' : null,
         sptNumber,
         sptDate,
         sptFile,
@@ -1068,7 +1075,8 @@ export function AttendanceProvider({ children }) {
     note = '',
     lat = null,
     lng = null,
-    distanceMeters = null
+    distanceMeters = null,
+    documentationPhotoRef = null
   }) => {
     try {
       const activity = activities.find(item => item.id === activityId);
@@ -1129,6 +1137,7 @@ export function AttendanceProvider({ children }) {
       });
       const updatedLog = {
         ...existingLog,
+        attendanceId: existingLog.attendanceId || existingLog.id,
         agendaId: existingLog.agendaId || activityId,
         participantId: existingLog.participantId || existingLog.memberId || existingLog.guestId,
         checkOutAt: checkOutAt.toISOString(),
@@ -1137,6 +1146,10 @@ export function AttendanceProvider({ children }) {
         methodCheckout: method,
         checkoutOperatorName: operatorName || currentUser?.name || 'Mandiri',
         checkoutNote: note,
+        checkoutPhotoRef: documentationPhotoRef || existingLog.checkoutPhotoRef || existingLog.checkoutPhoto || null,
+        checkOutPhotoId: documentationPhotoRef || existingLog.checkOutPhotoId || existingLog.checkoutPhotoRef || existingLog.checkoutPhoto || null,
+        checkoutPhotoAt: documentationPhotoRef ? checkOutAt.toISOString() : existingLog.checkoutPhotoAt || null,
+        checkoutPhotoType: documentationPhotoRef ? 'CHECK_OUT' : existingLog.checkoutPhotoType || null,
         anomalyFlags: anomalies,
         anomalyDetected: anomalies.length > 0,
         status: existingLog.status || 'On Time',
@@ -1188,7 +1201,13 @@ export function AttendanceProvider({ children }) {
     status = 'Hadir',
     note = '',
     operatorName = null,
-    invitationToken = null
+    invitationToken = null,
+    method = 'GUEST_CHECKIN',
+    lat = null,
+    lng = null,
+    distanceMeters = 0,
+    ignoreDeviceLock = false,
+    documentationPhotoRef = null
   }) => {
     try {
       const activity = activities.find(a => a.id === activityId);
@@ -1196,6 +1215,14 @@ export function AttendanceProvider({ children }) {
       const activityValidation = validateAttendanceActivity(activity);
       if (!activityValidation.allowed) return { success: false, message: activityValidation.message };
       if (!agency) return { success: false, message: 'Nama Instansi / OPD wajib diisi.' };
+      if (activity.gpsRequired && method === 'GPS_ONLINE') {
+        if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
+          return { success: false, message: 'Absensi tamu ditolak karena data lokasi perangkat tidak valid.' };
+        }
+        if (!Number.isFinite(Number(distanceMeters)) || Number(distanceMeters) > Number(activity.radiusMeters || 150)) {
+          return { success: false, message: 'Absensi tamu ditolak karena perangkat berada di luar area agenda.' };
+        }
+      }
 
       if (invitationToken) {
         const [activityToken, invitedGuestId] = String(invitationToken).split(':');
@@ -1205,7 +1232,9 @@ export function AttendanceProvider({ children }) {
 
       const deviceInfo = getDeviceFingerprint();
       const currentGuestId = guestId || getStableGuestId(activityId, agency, invitedName || 'Pejabat Terkait');
-      const deviceCheck = validateDeviceSingleAttendance(activityId, currentGuestId, logs);
+      const deviceCheck = ignoreDeviceLock
+        ? { allowed: true, anomaly: false }
+        : validateDeviceSingleAttendance(activityId, currentGuestId, logs);
       if (!deviceCheck.allowed) {
         return { success: false, message: deviceCheck.message };
       }
@@ -1257,6 +1286,7 @@ export function AttendanceProvider({ children }) {
       const checkInAt = new Date().toISOString();
       const newLog = {
         id: getAttendanceDocumentId(activityId, currentGuestId, 'EXTERNAL'),
+        attendanceId: getAttendanceDocumentId(activityId, currentGuestId, 'EXTERNAL'),
         activityId,
         agendaId: activityId,
         roomId: activity.roomId || null,
@@ -1284,8 +1314,15 @@ export function AttendanceProvider({ children }) {
         durationMinutes: 0,
         checkoutStatus: 'Masih Mengikuti Kegiatan',
         status: finalStatus,
-        method: 'GUEST_CHECKIN',
+        method,
         operatorName: operatorName || currentUser?.name || 'Meja Tamu OPD',
+        documentationPhotoRef: documentationPhotoRef || null,
+        checkInPhotoId: documentationPhotoRef || null,
+        documentationPhotoAt: documentationPhotoRef ? checkInAt : null,
+        documentationPhotoType: documentationPhotoRef ? 'CHECK_IN' : null,
+        lat,
+        lng,
+        distanceMeters,
         deviceId: deviceInfo.deviceId,
         deviceType: deviceInfo.deviceType,
         deviceOS: deviceInfo.os,
@@ -2125,6 +2162,59 @@ export function AttendanceProvider({ children }) {
     }
   };
 
+  const removeAttendancePhoto = async ({ attendanceId, photoType }) => {
+    if (!(isAdmin || isBK || currentRole === 'PETUGAS_SCAN')) {
+      return { success: false, message: 'Hanya Petugas, BK, atau Admin yang dapat menghapus foto dokumentasi.' };
+    }
+    if (!attendanceId || !['CHECK_IN', 'CHECK_OUT'].includes(photoType)) {
+      return { success: false, message: 'Referensi absensi atau jenis foto tidak valid.' };
+    }
+
+    const existingLog = logs.find(log => (log.attendanceId || log.id) === attendanceId);
+    if (!existingLog) return { success: false, message: 'Data absensi tidak ditemukan.' };
+
+    const isCheckIn = photoType === 'CHECK_IN';
+    const photoRef = isCheckIn
+      ? (existingLog.documentationPhotoRef || existingLog.checkInPhotoId || existingLog.documentationPhoto)
+      : (existingLog.checkoutPhotoRef || existingLog.checkOutPhotoId || existingLog.checkoutPhoto);
+    if (!photoRef) return { success: false, message: 'Foto dokumentasi tidak tersedia.' };
+
+    try {
+      await removeLocalAttendancePhoto(photoRef);
+      const updateData = isCheckIn
+        ? { documentationPhotoRef: null, checkInPhotoId: null, documentationPhoto: null, documentationPhotoAt: null, documentationPhotoType: null }
+        : { checkoutPhotoRef: null, checkOutPhotoId: null, checkoutPhoto: null, checkoutPhotoAt: null, checkoutPhotoType: null };
+      const updatedLog = { ...existingLog, ...updateData };
+      const logRef = doc(db, COL.LOGS, existingLog.id);
+      const remoteWriteResult = await safeDbWrite(
+        async () => {
+          setSyncStatus('syncing');
+          await updateDoc(logRef, { ...updateData, updatedAt: serverTimestamp() });
+          await waitForPendingWrites(db);
+        },
+        5000,
+        'Referensi foto gagal diperbarui di Firestore. Data absensi tetap aman.'
+      );
+
+      if (!remoteWriteResult.ok) {
+        enqueueAttendanceWrite('update', existingLog.id, updatedLog);
+        setSyncStatus('pending');
+      } else {
+        setSyncStatus('saved');
+      }
+
+      setLogs(previous => previous.map(log => log.id === existingLog.id ? updatedLog : log));
+      void logAudit({
+        action: 'ATTENDANCE_PHOTO_DELETED',
+        details: `${photoType === 'CHECK_IN' ? 'Foto Check-in' : 'Foto Check-out'} dihapus untuk absensi ${existingLog.id}. Data absensi tidak dihapus.`,
+        method: 'PHOTO_MANAGEMENT'
+      });
+      return { success: true, pending: !remoteWriteResult.ok, log: updatedLog };
+    } catch (error) {
+      return { success: false, message: error?.message || 'Foto gagal dihapus.' };
+    }
+  };
+
   return (
     <AttendanceContext.Provider value={{
       members, personnel, activities, logs, auditLogs, bkNotes,
@@ -2136,6 +2226,7 @@ export function AttendanceProvider({ children }) {
       canManageMembers, isAdmin, isBK,
       getMemberById, getPersonnelById, getParticipantById, getMemberByQR, getActivityById, getActivityByQR, getMemberRaport,
       recordAttendance, checkoutAttendance, recordGuestAttendance, recordManualAttendance,
+      removeAttendancePhoto,
       requestLeave, reviewLeaveRequest,
       getLPJData, updateLPJSummary,
       saveBKNote,

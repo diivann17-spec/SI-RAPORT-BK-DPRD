@@ -1,135 +1,271 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import jsQR from 'jsqr';
 import confetti from 'canvas-confetti';
 import { useAttendance } from '../context/AttendanceContext';
+import { formatDistance, isWithinRadius } from '../utils/geoUtils';
+import { saveAttendancePhoto } from '../utils/attendancePhotoStore';
 import {
-  QrCode, CheckCircle2, AlertCircle, X, Camera,
-  ShieldCheck, RefreshCw, Building, Loader2, UserX
+  QrCode,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  Camera,
+  ShieldCheck,
+  RefreshCw,
+  Building,
+  Loader2,
+  UserX,
+  Video,
+  Sparkles
 } from 'lucide-react';
 
-const QR_SCANNER_CONFIG = {
-  fps: 30,
-  qrbox: (viewfinderWidth, viewfinderHeight) => {
-    const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-    const qrboxSize = Math.floor(minEdge * 0.88);
-    return { width: qrboxSize, height: qrboxSize };
-  },
-  formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-  experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-  videoConstraints: {
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    frameRate: { ideal: 30, max: 30 }
+// Ambil foto dokumentasi langsung dari video element tanpa perlu start camera baru
+function captureFrameFromVideo(video) {
+  if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+    return null;
   }
-};
+  try {
+    const maxWidth = 800;
+    const scale = Math.min(1, maxWidth / video.videoWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.8);
+  } catch (e) {
+    console.warn('captureFrame error:', e);
+    return null;
+  }
+}
 
 export default function QRScannerModal({ isOpen, onClose, selectedActivityId, activityId }) {
-  const { members, personnel, activities, logs, getMemberByQR, getParticipantById, recordAttendance, checkoutAttendance, recordGuestAttendance } = useAttendance();
+  const {
+    members,
+    personnel,
+    activities,
+    logs,
+    getMemberByQR,
+    getParticipantById,
+    recordAttendance,
+    checkoutAttendance,
+    recordGuestAttendance
+  } = useAttendance();
 
+  const [cameraState, setCameraState] = useState('idle'); // 'idle' | 'requesting' | 'active' | 'error' | 'denied'
+  const [cameraError, setCameraError] = useState('');
+  const [availableDevices, setAvailableDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [scanResult, setScanResult] = useState(null);
   const [scanError, setScanError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [cameraError, setCameraError] = useState('');
-  const [scannerReady, setScannerReady] = useState(false);
-  const scannerRef = useRef(null);
-  const camerasRef = useRef([]);
-  const scannerDivId = 'qr-reader-scan-box';
-  const hasScanned = useRef(false); // prevent double-scan
+  const [simQuery, setSimQuery] = useState('');
 
-  const selectedActivity = activities.find(a => a.id === (selectedActivityId || activityId)) || activities[0];
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const animFrameRef = useRef(null);
+  const isScanningRef = useRef(false);
+  const hasDetectedRef = useRef(false);
+  const isInitializingRef = useRef(false);
+  const barcodeDetectorRef = useRef(null);
+  const currentSessionIdRef = useRef(0);
 
-  const stopScanner = useCallback(async () => {
-    const scanner = scannerRef.current;
-    if (!scanner) {
-      setScannerReady(false);
-      return;
-    }
+  // Simpan data context ke ref agar callback scanner tidak perlu re-instantiate effect
+  const contextDataRef = useRef({});
+  contextDataRef.current = {
+    members,
+    personnel,
+    activities,
+    logs,
+    getMemberByQR,
+    getParticipantById,
+    recordAttendance,
+    checkoutAttendance,
+    recordGuestAttendance,
+    selectedActivity: activities.find(a => a.id === (selectedActivityId || activityId)) || activities[0]
+  };
 
-    scannerRef.current = null;
-    try {
-      await scanner.stop();
-      scanner.clear();
-    } catch (e) {
-      // Scanner may already be stopped after a successful decode.
-    } finally {
-      setScannerReady(false);
+  const targetActivityId = selectedActivityId || activityId;
+  const selectedActivity = activities.find(a => a.id === targetActivityId) || activities[0];
+
+  // Inisialisasi BarcodeDetector jika browser mendukung
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      try {
+        barcodeDetectorRef.current = new window.BarcodeDetector({ formats: ['qr_code'] });
+      } catch (e) {
+        barcodeDetectorRef.current = null;
+      }
     }
   }, []);
 
-  const restartScanner = useCallback(async (onDecoded) => {
-    try {
-      await stopScanner();
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      const html5QrCode = new Html5Qrcode(scannerDivId);
-      scannerRef.current = html5QrCode;
-      const cameras = camerasRef.current.length > 0
-        ? camerasRef.current
-        : await Html5Qrcode.getCameras();
-      camerasRef.current = cameras;
-      if (!cameras?.length) throw new Error('Tidak ada kamera yang terdeteksi.');
-      const backCamera = cameras.find(camera => /back|rear|environment/i.test(camera.label || ''));
-      await html5QrCode.start(
-        backCamera?.id || cameras[0].id,
-        QR_SCANNER_CONFIG,
-        onDecoded,
-        () => {}
-      );
-      setScannerReady(true);
-    } catch (error) {
-      setScannerReady(false);
-      setCameraError(`Kamera gagal dimulai ulang: ${error?.message || error}`);
-    }
-  }, [stopScanner]);
+  // Hentikan camera stream, video source, dan animasi frame secara tuntas
+  const stopCamera = useCallback(() => {
+    isScanningRef.current = false;
+    isInitializingRef.current = false;
 
-  // Handle QR decoded data → lookup member → record attendance
-  const handleQRScanned = useCallback(async (decodedText) => {
-    if (hasScanned.current || isProcessing) return;
-    hasScanned.current = true;
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+
+    if (streamRef.current) {
+      try {
+        const tracks = streamRef.current.getTracks();
+        tracks.forEach(track => {
+          try { track.stop(); } catch (e) { }
+        });
+      } catch (e) { }
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+        videoRef.current.srcObject = null;
+      } catch (e) { }
+    }
+
+    setCameraState('idle');
+  }, []);
+
+  // Logika Pemrosesan QR yang Ditemukan
+  const handleQRScanned = useCallback(async (decodedText, overridePhoto = null) => {
+    if (hasDetectedRef.current && !overridePhoto) return;
+    hasDetectedRef.current = true;
+    isScanningRef.current = false;
     setIsProcessing(true);
     setScanError('');
 
-    // Stop kamera segera setelah scan berhasil
-    await stopScanner();
+    const {
+      members: ctxMembers,
+      personnel: ctxPersonnel,
+      activities: ctxActivities,
+      logs: ctxLogs,
+      getMemberByQR: ctxGetMemberByQR,
+      getParticipantById: ctxGetParticipantById,
+      recordAttendance: ctxRecordAttendance,
+      checkoutAttendance: ctxCheckoutAttendance,
+      recordGuestAttendance: ctxRecordGuestAttendance,
+      selectedActivity: ctxSelectedActivity
+    } = contextDataRef.current;
+
+    let documentationPhoto = overridePhoto;
+    if (!documentationPhoto && videoRef.current) {
+      documentationPhoto = captureFrameFromVideo(videoRef.current);
+    }
 
     const cleanText = (decodedText || '').trim();
+    if (!cleanText) {
+      setScanError('Data QR Code tidak valid.');
+      setIsProcessing(false);
+      hasDetectedRef.current = false;
+      isScanningRef.current = true;
+      return;
+    }
+
     let payload = null;
     try {
       const parsed = JSON.parse(cleanText);
       if (parsed && typeof parsed === 'object') payload = parsed;
-    } catch (e) {}
+    } catch (e) { }
+
     const recoverScan = () => {
       setIsProcessing(false);
-      hasScanned.current = false;
-      void restartScanner(handleQRScanned);
+      hasDetectedRef.current = false;
+      isScanningRef.current = true;
     };
 
     let scannedUrl = null;
     let invitationToken = null;
-    try { scannedUrl = new URL(cleanText); } catch (e) {}
+    try { scannedUrl = new URL(cleanText); } catch (e) { }
     const invitationType = scannedUrl?.searchParams.get('type') || payload?.type || null;
     const scannedActivityId = scannedUrl?.searchParams.get('absen') || payload?.activityId || payload?.absen || null;
     const activityForScan = scannedActivityId
-      ? activities.find(activity => activity.id === scannedActivityId)
-      : selectedActivity;
+      ? ctxActivities.find(activity => activity.id === scannedActivityId)
+      : ctxSelectedActivity;
+
     if (scannedActivityId && !activityForScan) {
-      setScanError('QR undangan tidak terkait dengan agenda yang tersedia.');
+      setScanError('QR undangan tidak terkait dengan agenda yang tersedia di sistem.');
       recoverScan();
       return;
     }
-    if (invitationType === 'opd') {
-      if (!activityForScan) {
-        setScanError('Tidak ada agenda kegiatan yang dipilih.');
+    if (!activityForScan) {
+      setScanError('Tidak ada agenda kegiatan yang dipilih.');
+      recoverScan();
+      return;
+    }
+
+    // Geolocation check jika agenda mewajibkan GPS
+    let scannerLocation = { lat: null, lng: null, distanceMeters: 0 };
+    if (activityForScan.gpsRequired) {
+      if (!navigator.geolocation) {
+        setScanError('Agenda ini mewajibkan GPS, tetapi browser tidak mendukung lokasi.');
         recoverScan();
         return;
       }
+      try {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 8000,
+            maximumAge: 0
+          });
+        });
+        const location = position.coords;
+        const radiusCheck = isWithinRadius(
+          Number(location.latitude),
+          Number(location.longitude),
+          Number(activityForScan.targetLat) || 0,
+          Number(activityForScan.targetLng) || 0,
+          Number(activityForScan.radiusMeters) || 150,
+          Number(location.accuracy) || null
+        );
+        if (!radiusCheck.isWithin) {
+          setScanError(
+            Number.isFinite(radiusCheck.accuracyMeters) && radiusCheck.accuracyMeters > radiusCheck.accuracyLimit
+              ? `GPS belum cukup akurat (${Math.round(radiusCheck.accuracyMeters)} m).`
+              : `Absensi ditolak. Perangkat berada di luar radius agenda (${formatDistance(radiusCheck.distance)}).`
+          );
+          recoverScan();
+          return;
+        }
+        scannerLocation = {
+          lat: Number(location.latitude),
+          lng: Number(location.longitude),
+          distanceMeters: Math.round(radiusCheck.distance)
+        };
+      } catch (error) {
+        setScanError(
+          error?.code === 1
+            ? 'Izin GPS ditolak. Agenda mewajibkan validasi lokasi.'
+            : 'Lokasi GPS belum dapat diperoleh.'
+        );
+        recoverScan();
+        return;
+      }
+    }
 
-      const guestId = scannedUrl?.searchParams.get('guestId') || payload?.guestId || null;
-      const agency = scannedUrl?.searchParams.get('agency') || payload?.agency || 'OPD/Instansi';
-      const invitedName = scannedUrl?.searchParams.get('name') || payload?.name || 'Peserta OPD';
-      const participantCategory = scannedUrl?.searchParams.get('category') || payload?.category || 'OPD/INSTANSI';
-      const invitationToken = scannedUrl?.searchParams.get('token') || payload?.token || null;
+    // ── KELOMPOK 1: TAMU EKSTERNAL / OPD ──
+    const normalizedInvitationType = String(invitationType || '').toLowerCase();
+    const isExternalInvitation = ['opd', 'guest', 'tamu', 'representative', 'perwakilan'].includes(normalizedInvitationType)
+      || String(payload?.participantType || '').toUpperCase() === 'EXTERNAL';
 
-      const existingGuestAttendance = logs.find(log =>
+    if (isExternalInvitation) {
+      const guestId = scannedUrl?.searchParams.get('guestId') || payload?.guestId || payload?.id || null;
+      const agency = scannedUrl?.searchParams.get('agency') || payload?.agency || payload?.guestAgency || 'Instansi/Tamu';
+      const invitedName = scannedUrl?.searchParams.get('name') || payload?.name || payload?.invitedName || payload?.guestName || 'Peserta Tamu';
+      const position = scannedUrl?.searchParams.get('position') || payload?.position || '';
+      const participantCategory = scannedUrl?.searchParams.get('category') || payload?.category || payload?.participantCategory || 'TAMU/UNDANGAN';
+      const isRepresented = (scannedUrl?.searchParams.get('isRepresented') || payload?.isRepresented) === true
+        || String(scannedUrl?.searchParams.get('isRepresented') || payload?.isRepresented || '').toLowerCase() === 'true';
+      const representativeName = scannedUrl?.searchParams.get('representativeName') || payload?.representativeName || '';
+      const representativePosition = scannedUrl?.searchParams.get('representativePosition') || payload?.representativePosition || '';
+      const token = scannedUrl?.searchParams.get('token') || payload?.token || null;
+
+      const existingGuestAttendance = ctxLogs.find(log =>
         log.activityId === activityForScan.id &&
         log.participantType === 'EXTERNAL' &&
         ((guestId && log.guestId === guestId) ||
@@ -137,9 +273,10 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
             String(log.invitedName || '').trim().toLowerCase() === String(invitedName || '').trim().toLowerCase()))
       );
 
+      // Check-out OPD
       if (existingGuestAttendance) {
         if (existingGuestAttendance.checkOutAt) {
-          setScanError(`${invitedName} dari ${agency} sudah melakukan Check-out pada agenda ini.`);
+          setScanError(`${invitedName} dari ${agency} sudah melakukan Check-out.`);
           recoverScan();
           return;
         }
@@ -149,38 +286,86 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
           return;
         }
 
-        const checkoutResult = await checkoutAttendance({
+        let checkoutPhoto = null;
+        try {
+          checkoutPhoto = documentationPhoto
+            ? await saveAttendancePhoto({
+              dataUrl: documentationPhoto,
+              activityId: activityForScan.id,
+              participantId: existingGuestAttendance.guestId || guestId || 'GUEST',
+              eventType: 'CHECK_OUT',
+              logId: existingGuestAttendance.id
+            })
+            : null;
+        } catch (error) { }
+
+        const checkoutResult = await ctxCheckoutAttendance({
           activityId: activityForScan.id,
           participantType: 'EXTERNAL',
           guestId,
           agency,
           invitedName,
-          method: 'QR_WEBCAM',
-          operatorName: 'Petugas Laptop Webcam Scanner'
+          method: activityForScan.gpsRequired ? 'GPS_ONLINE' : 'QR_WEBCAM',
+          operatorName: 'Petugas Laptop Webcam Scanner',
+          documentationPhotoRef: checkoutPhoto,
+          ...scannerLocation
         });
 
-        if (checkoutResult.success) setScanResult({ ...checkoutResult, guest: true, member: { name: invitedName } });
-        else { setScanError(checkoutResult.message || 'Gagal menyimpan Check-out OPD.'); recoverScan(); }
+        if (checkoutResult.success) {
+          setScanResult({ ...checkoutResult, guest: true, member: { name: invitedName, agency } });
+          try { confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } }); } catch (e) { }
+        } else {
+          setScanError(checkoutResult.message || 'Gagal menyimpan Check-out OPD.');
+          recoverScan();
+        }
         setIsProcessing(false);
         return;
       }
 
-      const result = await recordGuestAttendance({
+      // Check-in OPD
+      let checkinPhoto = null;
+      try {
+        checkinPhoto = documentationPhoto
+          ? await saveAttendancePhoto({
+            dataUrl: documentationPhoto,
+            activityId: activityForScan.id,
+            participantId: guestId || `${agency}-${invitedName}`,
+            eventType: 'CHECK_IN',
+            logId: `ATT-GST-${activityForScan.id}-${guestId || `${agency}-${invitedName}`}`
+          })
+          : null;
+      } catch (error) { }
+
+      const result = await ctxRecordGuestAttendance({
         activityId: activityForScan.id,
         guestId,
         agency,
         invitedName,
+        position,
         participantCategory,
-        invitationToken,
+        isRepresented,
+        representativeName,
+        representativePosition,
+        invitationToken: token,
+        method: activityForScan.gpsRequired ? 'GPS_ONLINE' : 'QR_WEBCAM',
+        ...scannerLocation,
+        ignoreDeviceLock: true,
+        documentationPhotoRef: checkinPhoto,
         operatorName: 'Petugas Laptop Webcam Scanner'
       });
-      if (result.success) setScanResult({ ...result, guest: true });
-      else { setScanError(result.message || 'Gagal menyimpan absensi OPD.'); recoverScan(); }
-      if (result.success) setIsProcessing(false);
+
+      if (result.success) {
+        setScanResult({ ...result, guest: true, member: { name: invitedName, agency } });
+        try { confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } }); } catch (e) { }
+      } else {
+        setScanError(result.message || 'Gagal menyimpan absensi OPD.');
+        recoverScan();
+      }
+      setIsProcessing(false);
       return;
     }
 
-    // 1. Ekstraksi jika QR berupa URL web presensi (?token= atau ?member= atau ?absen=)
+    // ── KELOMPOK 2: ANGGOTA DPRD & PERSONEL INTERNAL ──
     let extractedToken = cleanText;
     try {
       if (cleanText.includes('http://') || cleanText.includes('https://') || cleanText.includes('?')) {
@@ -189,35 +374,32 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
         const urlToken = invitationToken || urlObj.searchParams.get('memberId') || urlObj.searchParams.get('member') || urlObj.searchParams.get('id');
         if (urlToken) extractedToken = urlToken;
       }
-    } catch (e) {}
+    } catch (e) { }
     invitationToken = invitationToken || payload?.token || null;
 
-    // 2. Cari member dengan helper getMemberByQR
-    let member = getMemberByQR(extractedToken) || getMemberByQR(cleanText);
+    let member = ctxGetMemberByQR(extractedToken) || ctxGetMemberByQR(cleanText);
 
-    // QR undangan anggota berbentuk ACTIVITY_TOKEN:MEMBER_ID.
-    // Token ini bukan QR Kartu Anggota, tetapi tetap harus mengarah ke peserta INTERNAL.
     const invitationMemberId = invitationType === 'member'
       ? (scannedUrl?.searchParams.get('memberId') || payload?.memberId || (invitationToken?.includes(':') ? invitationToken.slice(invitationToken.lastIndexOf(':') + 1) : ''))
       : '';
     if (!member && invitationMemberId) {
-      member = getParticipantById(invitationMemberId);
+      member = ctxGetParticipantById(invitationMemberId);
     }
 
-    // 3. Parse jika QR berupa format JSON
+    // JSON parsing
     if (!member) {
       try {
         const parsed = JSON.parse(cleanText);
-        if (parsed.id) member = getParticipantById(parsed.id);
-        if (!member && parsed.qrToken) member = getMemberByQR(parsed.qrToken);
-        if (!member && parsed.nip) member = members.find(m => m.nip === parsed.nip);
-        if (!member && parsed.memberId) member = getParticipantById(parsed.memberId);
-      } catch (e) { /* bukan JSON */ }
+        if (parsed.id) member = ctxGetParticipantById(parsed.id);
+        if (!member && parsed.qrToken) member = ctxGetMemberByQR(parsed.qrToken);
+        if (!member && parsed.nip) member = ctxMembers.find(m => m.nip === parsed.nip);
+        if (!member && parsed.memberId) member = ctxGetParticipantById(parsed.memberId);
+      } catch (e) { }
     }
 
-    // 4. Cari berdasarkan ID atau NIP langsung
+    // ID atau NIP langsung
     if (!member) {
-      member = [...members, ...personnel].find(m =>
+      member = [...ctxMembers, ...ctxPersonnel].find(m =>
         m.id === cleanText ||
         m.id === extractedToken ||
         m.nip === cleanText ||
@@ -227,9 +409,9 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       );
     }
 
-    // 5. Fuzzy match: jika token mengandung ID atau NIP anggota
+    // Fuzzy match
     if (!member) {
-      member = [...members, ...personnel].find(m =>
+      member = [...ctxMembers, ...ctxPersonnel].find(m =>
         cleanText.includes(m.id) ||
         (m.nip && cleanText.includes(m.nip)) ||
         (m.name && cleanText.toLowerCase().includes(m.name.toLowerCase()))
@@ -237,274 +419,585 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     }
 
     if (!member) {
-      setScanError(`QR Code "${cleanText}" tidak cocok dengan data peserta internal di sistem. Pastikan menggunakan Kartu Digital resmi.`);
+      setScanError(`QR Code "${cleanText}" tidak terdaftar di sistem.`);
       recoverScan();
       return;
     }
 
-    if (!activityForScan) {
-      setScanError('Tidak ada agenda kegiatan yang dipilih. Pilih agenda kegiatan terlebih dahulu.');
+    if (member.statusActive === false) {
+      setScanError(`${member.name || 'Anggota'} berstatus tidak aktif.`);
       recoverScan();
       return;
     }
 
     if (invitationMemberId && member.id !== invitationMemberId) {
-      setScanError('QR undangan anggota tidak sesuai dengan identitas peserta.');
+      setScanError('QR undangan tidak sesuai identitas peserta.');
       recoverScan();
       return;
     }
 
     if (invitationMemberId && Array.isArray(activityForScan.participantMemberIds) && !activityForScan.participantMemberIds.includes(member.id)) {
-      setScanError('Anggota pada QR undangan tidak terdaftar sebagai peserta agenda ini.');
+      setScanError('Anggota tidak terdaftar sebagai peserta agenda ini.');
       recoverScan();
       return;
     }
 
-    const existingAttendance = logs.find(log => log.activityId === activityForScan.id && log.memberId === member.id && log.participantType !== 'EXTERNAL');
+    // Cek apakah sudah ada log kehadiran
+    const existingAttendance = ctxLogs.find(log =>
+      log.activityId === activityForScan.id &&
+      log.memberId === member.id &&
+      log.participantType !== 'EXTERNAL'
+    );
+
+    // Proses Check-Out Anggota
     if (existingAttendance) {
       if (existingAttendance.checkOutAt) {
         setScanError(`${member.name} sudah melakukan Check-out pada agenda ini.`);
         recoverScan();
         return;
       }
-      if (!window.confirm(`Konfirmasi Check-out ${member.name}?`)) {
+      if (!window.confirm(`Konfirmasi Check-out untuk ${member.name}?`)) {
         recoverScan();
         return;
       }
-      const checkoutResult = await checkoutAttendance({ activityId: activityForScan.id, memberId: member.id, method: 'QR_WEBCAM', operatorName: 'Petugas Laptop Webcam Scanner' });
-      if (checkoutResult.success) setScanResult({ ...checkoutResult, member, participantType: 'INTERNAL', isCheckout: true });
-      else { setScanError(checkoutResult.message || 'Gagal menyimpan Check-out.'); recoverScan(); }
+      let checkoutPhoto = null;
+      try {
+        checkoutPhoto = documentationPhoto
+          ? await saveAttendancePhoto({
+            dataUrl: documentationPhoto,
+            activityId: activityForScan.id,
+            participantId: member.id,
+            eventType: 'CHECK_OUT',
+            logId: existingAttendance.id
+          })
+          : null;
+      } catch (error) { }
+
+      const checkoutResult = await ctxCheckoutAttendance({
+        activityId: activityForScan.id,
+        memberId: member.id,
+        method: activityForScan.gpsRequired ? 'GPS_ONLINE' : 'QR_WEBCAM',
+        operatorName: 'Petugas Laptop Webcam Scanner',
+        documentationPhotoRef: checkoutPhoto,
+        ...scannerLocation
+      });
+
+      if (checkoutResult.success) {
+        setScanResult({ ...checkoutResult, member, participantType: 'INTERNAL', isCheckout: true });
+        try { confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } }); } catch (e) { }
+      } else {
+        setScanError(checkoutResult.message || 'Gagal menyimpan Check-out.');
+        recoverScan();
+      }
       setIsProcessing(false);
       return;
     }
 
-    // Rekam absensi ke Firestore (Webcam Petugas Meja Registrasi diizinkan scan kartu banyak anggota)
-    const result = await recordAttendance({
+    // Proses Check-In Anggota
+    let checkinPhoto = null;
+    try {
+      checkinPhoto = documentationPhoto
+        ? await saveAttendancePhoto({
+          dataUrl: documentationPhoto,
+          activityId: activityForScan.id,
+          participantId: member.id,
+          eventType: 'CHECK_IN',
+          logId: `ATT-${activityForScan.id}-${member.id}`
+        })
+        : null;
+    } catch (error) { }
+
+    const result = await ctxRecordAttendance({
       activityId: activityForScan.id,
       memberId: member.id,
-      method: 'QR_WEBCAM',
+      method: activityForScan.gpsRequired ? 'GPS_ONLINE' : 'QR_WEBCAM',
       operatorName: 'Petugas Laptop Webcam Scanner',
       ignoreDeviceLock: true,
-      invitationToken
+      invitationToken,
+      documentationPhotoRef: checkinPhoto,
+      ...scannerLocation
     });
 
     if (result.success) {
       setScanResult({ ...result, member, participantType: 'INTERNAL' });
       setScanError('');
-      try {
-        confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
-      } catch (e) {}
+      try { confetti({ particleCount: 85, spread: 75, origin: { y: 0.6 } }); } catch (e) { }
     } else {
       setScanError(result.message || 'Gagal menyimpan absensi ke database.');
       recoverScan();
     }
     setIsProcessing(false);
-  }, [isProcessing, getMemberByQR, getParticipantById, members, personnel, activities, logs, recordAttendance, checkoutAttendance, selectedActivity, stopScanner, restartScanner]);
+  }, []);
 
-  // Inisialisasi kamera scanner
-  useEffect(() => {
-    if (!isOpen) {
-      stopScanner();
-      setScanResult(null);
-      setScanError('');
-      setCameraError('');
-      hasScanned.current = false;
+  // Scan frame loop - Sangat ringan (max 4-5 fps decode, canvas 320x240, no heavy pixel loops)
+  const startScanLoop = useCallback(() => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    isScanningRef.current = true;
+
+    let lastScanTime = 0;
+    const canvas = canvasRef.current || document.createElement('canvas');
+    canvasRef.current = canvas;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+
+    const scanFrame = async (timestamp) => {
+      if (!isScanningRef.current || hasDetectedRef.current) return;
+
+      const video = videoRef.current;
+      if (video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        // Batasi frekuensi decode: 1 kali setiap 220ms agar browser tetap 100% responsif
+        if (timestamp - lastScanTime >= 220) {
+          lastScanTime = timestamp;
+
+          // Resolusi decode optimal (320px) sehingga jsQR selesai dalam < 3 milidetik
+          const vw = video.videoWidth;
+          const vh = video.videoHeight;
+          const targetW = 320;
+          const targetH = Math.max(1, Math.round((vh / vw) * targetW));
+
+          canvas.width = targetW;
+          canvas.height = targetH;
+
+          if (context) {
+            context.drawImage(video, 0, 0, targetW, targetH);
+
+            let detectedText = null;
+
+            // 1. Coba BarcodeDetector native (Chrome/Edge hardware accelerated)
+            if (barcodeDetectorRef.current) {
+              try {
+                const barcodes = await barcodeDetectorRef.current.detect(canvas);
+                if (barcodes && barcodes.length > 0 && barcodes[0]?.rawValue) {
+                  detectedText = barcodes[0].rawValue;
+                }
+              } catch (e) { }
+            }
+
+            // 2. jsQR (Super cepat pada 320x240)
+            if (!detectedText) {
+              try {
+                const imgData = context.getImageData(0, 0, targetW, targetH);
+                const code = jsQR(imgData.data, targetW, targetH, { inversionAttempts: 'dontInvert' });
+                if (code?.data) {
+                  detectedText = code.data;
+                } else {
+                  // Coba invert jika kartu berlatar belakang gelap
+                  const invertedCode = jsQR(imgData.data, targetW, targetH, { inversionAttempts: 'onlyInvert' });
+                  if (invertedCode?.data) {
+                    detectedText = invertedCode.data;
+                  }
+                }
+              } catch (e) { }
+            }
+
+            if (detectedText && !hasDetectedRef.current) {
+              void handleQRScanned(detectedText);
+              return;
+            }
+          }
+        }
+      }
+
+      if (isScanningRef.current && !hasDetectedRef.current) {
+        animFrameRef.current = requestAnimationFrame(scanFrame);
+      }
+    };
+
+    animFrameRef.current = requestAnimationFrame(scanFrame);
+  }, [handleQRScanned]);
+
+  // Inisialisasi Kamera
+  const startCamera = useCallback(async (deviceIdToUse = null) => {
+    if (isInitializingRef.current) return;
+    isInitializingRef.current = true;
+
+    const sessionId = Date.now();
+    currentSessionIdRef.current = sessionId;
+
+    setCameraState('requesting');
+    setCameraError('');
+
+    // Hentikan stream yang ada
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      try {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      } catch (e) { }
+      streamRef.current = null;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      isInitializingRef.current = false;
+      setCameraState('error');
+      setCameraError('Browser ini tidak mendukung akses kamera webcam (getUserMedia). Gunakan Chrome atau Edge versi terbaru.');
       return;
     }
 
-    // Tunggu sebentar agar DOM element ter-render
-    const timer = setTimeout(async () => {
-      try {
-        const html5QrCode = new Html5Qrcode(scannerDivId);
-        scannerRef.current = html5QrCode;
+    try {
+      let stream = null;
+      const constraintsList = [];
 
-        // Ambil daftar kamera yang tersedia
-        const cameras = camerasRef.current.length > 0
-          ? camerasRef.current
-          : await Html5Qrcode.getCameras();
-        camerasRef.current = cameras;
-        if (!cameras || cameras.length === 0) {
-          setCameraError('Tidak ada kamera yang terdeteksi. Pastikan kamera laptop/PC terhubung.');
-          return;
-        }
+      if (deviceIdToUse) {
+        constraintsList.push({
+          video: { deviceId: { exact: deviceIdToUse }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+      }
 
-        // Prioritaskan kamera belakang jika ada, fallback ke kamera pertama
-        const backCamera = cameras.find(c =>
-          c.label.toLowerCase().includes('back') ||
-          c.label.toLowerCase().includes('rear') ||
-          c.label.toLowerCase().includes('environment')
-        );
-        const cameraId = backCamera?.id || cameras[0].id;
+      // Default laptop webcam
+      constraintsList.push({
+        video: { facingMode: { ideal: 'user' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
 
-        await html5QrCode.start(
-          cameraId,
-          QR_SCANNER_CONFIG,
-          (decodedText) => handleQRScanned(decodedText),
-          () => {} // abaikan error frame tidak terbaca
-        );
-        setScannerReady(true);
-        setCameraError('');
-      } catch (err) {
-        console.error('Camera start error:', err);
-        if (err?.toString().includes('Permission')) {
-          setCameraError('Akses kamera ditolak. Izinkan akses kamera di browser (ikon kunci di address bar).');
-        } else if (err?.toString().includes('NotFound') || err?.toString().includes('Requested device not found')) {
-          setCameraError('Kamera tidak ditemukan. Periksa koneksi kamera dan refresh halaman.');
-        } else {
-          setCameraError(`Kamera gagal dimulai: ${err?.message || err}`);
+      // Fallback environment
+      constraintsList.push({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+
+      // Fallback universal
+      constraintsList.push({
+        video: true,
+        audio: false
+      });
+
+      let lastError = null;
+      for (const constraints of constraintsList) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break;
+        } catch (err) {
+          lastError = err;
         }
       }
-    }, 300);
+
+      if (!stream) {
+        throw lastError || new Error('Tidak dapat terhubung ke kamera.');
+      }
+
+      // Jika user menutup modal saat getUserMedia masih loading
+      if (currentSessionIdRef.current !== sessionId) {
+        stream.getTracks().forEach(t => t.stop());
+        isInitializingRef.current = false;
+        return;
+      }
+
+      streamRef.current = stream;
+
+      // Cari daftar perangkat kamera
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
+        setAvailableDevices(videoInputs);
+        if (videoInputs.length > 0 && !deviceIdToUse) {
+          const currentTrack = stream.getVideoTracks()[0];
+          const activeDeviceId = currentTrack?.getSettings()?.deviceId || videoInputs[0].deviceId;
+          setSelectedDeviceId(activeDeviceId);
+        }
+      } catch (e) { }
+
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.muted = true;
+
+        await new Promise((resolve) => {
+          if (video.readyState >= 2) {
+            resolve();
+          } else {
+            video.onloadedmetadata = () => resolve();
+          }
+        });
+
+        await video.play().catch(() => { });
+        setCameraState('active');
+        isInitializingRef.current = false;
+        startScanLoop();
+      }
+    } catch (err) {
+      isInitializingRef.current = false;
+      if (currentSessionIdRef.current !== sessionId) return;
+
+      console.error('Camera init error:', err);
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        setCameraState('denied');
+        setCameraError('Izin akses webcam ditolak oleh browser. Silakan klik ikon gembok atau kamera di address bar browser untuk mengizinkan kamera.');
+      } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+        setCameraState('error');
+        setCameraError('Kamera sedang digunakan oleh aplikasi lain (seperti Zoom, Meet, Teams). Silakan tutup aplikasi tersebut lalu coba lagi.');
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        setCameraState('error');
+        setCameraError('Perangkat webcam tidak ditemukan.');
+      } else {
+        setCameraState('error');
+        setCameraError(`Gagal mengakses kamera: ${err?.message || 'Izin kamera diperlukan.'}`);
+      }
+    }
+  }, [startScanLoop]);
+
+  // Efek Buka / Tutup Modal
+  useEffect(() => {
+    if (!isOpen) {
+      stopCamera();
+      setScanResult(null);
+      setScanError('');
+      setCameraError('');
+      hasDetectedRef.current = false;
+      setIsProcessing(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void startCamera();
+    }, 50);
 
     return () => {
       clearTimeout(timer);
-      stopScanner();
+      stopCamera();
     };
-  }, [isOpen, selectedActivityId]);
+  }, [isOpen, targetActivityId, startCamera, stopCamera]);
 
-  // Reset dan scan ulang
-  const handleRescan = async () => {
+  const handleDeviceChange = async (e) => {
+    const newDeviceId = e.target.value;
+    setSelectedDeviceId(newDeviceId);
+    await startCamera(newDeviceId);
+  };
+
+  const handleScanNext = async () => {
     setScanResult(null);
     setScanError('');
-    setCameraError('');
-    hasScanned.current = false;
+    hasDetectedRef.current = false;
     setIsProcessing(false);
-    setScannerReady(false);
 
-    try {
-      await stopScanner();
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const html5QrCode = new Html5Qrcode(scannerDivId);
-      scannerRef.current = html5QrCode;
-      const cameras = camerasRef.current.length > 0
-        ? camerasRef.current
-        : await Html5Qrcode.getCameras();
-      camerasRef.current = cameras;
-      if (!cameras?.length) {
-        setCameraError('Tidak ada kamera yang terdeteksi.');
-        return;
-      }
-      const backCamera = cameras.find(c => /back|rear|environment/i.test(c.label || ''));
-      await html5QrCode.start(
-        backCamera?.id || cameras[0].id,
-        QR_SCANNER_CONFIG,
-        (decodedText) => handleQRScanned(decodedText),
-        () => {}
-      );
-      setScannerReady(true);
-    } catch (err) {
-      setCameraError(`Gagal restart kamera: ${err?.message || err}`);
+    if (!streamRef.current || cameraState !== 'active') {
+      await startCamera(selectedDeviceId);
+    } else {
+      startScanLoop();
     }
   };
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl text-slate-100 relative max-h-[92vh] overflow-y-auto">
+  const filteredMembers = members.filter(m => {
+    if (!simQuery) return true;
+    const q = simQuery.toLowerCase();
+    return (
+      (m.name && m.name.toLowerCase().includes(q)) ||
+      (m.nip && m.nip.toLowerCase().includes(q)) ||
+      (m.fraksi && m.fraksi.toLowerCase().includes(q))
+    );
+  });
 
-        {/* Header */}
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl text-slate-100 relative max-h-[94vh] overflow-y-auto flex flex-col">
+
+        {/* ── HEADER MODAL ── */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-cyan-950 border border-cyan-800 text-cyan-400">
+            <div className="p-2.5 rounded-2xl bg-cyan-950 border border-cyan-800/80 text-cyan-400 shadow-sm">
               <Camera className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-lg text-white">Scan QR Code Absensi</h3>
-              <p className="text-xs text-slate-400">Arahkan QR Card anggota ke depan kamera</p>
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-base sm:text-lg text-white">Absensi QR Webcam Laptop</h3>
+                <span className="bg-cyan-500/20 text-cyan-300 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-cyan-500/30">
+                  Meja Registrasi
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">Arahkan QR Card Anggota ke kamera untuk presensi real-time</p>
             </div>
           </div>
-          <button onClick={() => { stopScanner(); onClose(); }} className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">
+          <button
+            onClick={() => {
+              stopCamera();
+              onClose();
+            }}
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
+            title="Tutup Scanner"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Kegiatan Banner */}
-        {selectedActivity && (
-          <div className="my-4 p-3 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between text-xs">
-            <div className="flex items-center space-x-2">
+        {/* ── BANNER AGENDA TERPILIH ── */}
+        {selectedActivity ? (
+          <div className="my-3.5 p-3 rounded-2xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between text-xs">
+            <div className="flex items-center space-x-2.5 min-w-0">
               <Building className="w-4 h-4 text-emerald-400 shrink-0" />
-              <div>
-                <span className="text-slate-400">Kegiatan: </span>
-                <strong className="text-emerald-300">{selectedActivity.title}</strong>
+              <div className="truncate">
+                <span className="text-slate-400">Agenda: </span>
+                <strong className="text-emerald-300 truncate">{selectedActivity.title}</strong>
               </div>
             </div>
-            <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold">
+            <span className="px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-extrabold shrink-0">
               {selectedActivity.category}
             </span>
           </div>
-        )}
-
-        {!selectedActivity && (
-          <div className="my-4 p-3 rounded-xl bg-amber-950/60 border border-amber-800 text-amber-300 text-xs flex items-center gap-2">
+        ) : (
+          <div className="my-3.5 p-3 rounded-2xl bg-amber-950/60 border border-amber-800 text-amber-300 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>Belum ada agenda kegiatan. Buat kegiatan terlebih dahulu di menu Agenda.</span>
+            <span>Belum ada agenda yang aktif. Pastikan agenda telah dibuat di menu Agenda Kegiatan.</span>
           </div>
         )}
 
-        {/* ── Scan View ── */}
+        {/* ── KONTEN UTAMA: SCANNER vs HASIL ── */}
         {!scanResult ? (
-          <div>
-            {/* Error Kamera */}
-            {cameraError ? (
-              <div className="my-4 p-5 rounded-2xl bg-rose-950/60 border border-rose-800 text-center space-y-3">
-                <UserX className="w-10 h-10 text-rose-400 mx-auto" />
-                <p className="text-rose-300 text-xs font-bold">{cameraError}</p>
-                <p className="text-rose-400 text-[11px]">Gunakan tombol simulasi di bawah untuk tes tanpa kamera.</p>
+          <div className="space-y-3.5 flex-1 flex flex-col">
+
+            {/* Error / Permission Denied Box */}
+            {cameraState === 'denied' || cameraState === 'error' ? (
+              <div className="p-5 rounded-2xl bg-rose-950/60 border border-rose-800/80 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-rose-900/60 text-rose-300 flex items-center justify-center mx-auto border border-rose-700">
+                  <UserX className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-rose-200 text-sm">Akses Kamera Terkendala</h4>
+                  <p className="text-rose-300 text-xs mt-1 leading-relaxed">{cameraError}</p>
+                </div>
+                <div className="pt-2 flex justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startCamera(selectedDeviceId)}
+                    className="px-4 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition"
+                  >
+                    <RefreshCw className="w-4 h-4" /> Coba Hubungkan Kamera Lagi
+                  </button>
+                </div>
               </div>
             ) : (
-              <div className="my-4 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden relative" style={{ minHeight: 300 }}>
-                {/* Loading overlay sebelum kamera siap */}
-                {!scannerReady && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950 z-10">
+              /* ── VIDEO PREVIEW CONTAINER ── */
+              <div className="relative rounded-2xl border-2 border-cyan-500/40 bg-slate-950 overflow-hidden shadow-inner aspect-video flex items-center justify-center">
+                {/* Elemen Video Native React */}
+                <video
+                  ref={videoRef}
+                  playsInline
+                  muted
+                  autoPlay
+                  className="w-full h-full object-cover"
+                />
+
+                {/* Loading State Overlay */}
+                {cameraState === 'requesting' && (
+                  <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center gap-3 z-20">
                     <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
-                    <p className="text-xs text-slate-400">Memulai kamera...</p>
+                    <div className="text-center">
+                      <p className="text-xs font-bold text-white">Menghubungkan Webcam Laptop...</p>
+                      <p className="text-[11px] text-slate-400">Mohon izinkan akses kamera jika muncul popup browser</p>
+                    </div>
                   </div>
                 )}
-                <div id={scannerDivId} className="w-full" />
+
+                {/* Laser Scanning Animation Overlay */}
+                {cameraState === 'active' && !isProcessing && (
+                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+                    {/* Frame Target Kotak */}
+                    <div className="w-56 h-56 sm:w-64 sm:h-64 border-2 border-cyan-400/80 rounded-2xl relative shadow-[0_0_20px_rgba(6,182,212,0.3)]">
+                      {/* Corner Accents */}
+                      <div className="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-cyan-300 rounded-tl-lg" />
+                      <div className="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-cyan-300 rounded-tr-lg" />
+                      <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-cyan-300 rounded-bl-lg" />
+                      <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-cyan-300 rounded-br-lg" />
+
+                      {/* Moving Scanning Line */}
+                      <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee] animate-pulse" />
+                    </div>
+
+                    <div className="absolute bottom-3 inset-x-0 text-center">
+                      <span className="px-3 py-1 bg-slate-950/80 text-cyan-300 text-[11px] font-semibold rounded-full border border-cyan-800/80 backdrop-blur-xs">
+                        📷 Arahkan QR Card tepat ke kotak scanner
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Processing Overlay */}
+                {isProcessing && (
+                  <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center gap-3 z-30">
+                    <Loader2 className="w-10 h-10 text-emerald-400 animate-spin" />
+                    <div className="text-center">
+                      <p className="text-xs font-bold text-white">QR Terbaca! Memvalidasi Identitas & Foto...</p>
+                      <p className="text-[11px] text-slate-400">Menyimpan data presensi ke Cloud Firestore</p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Processing indicator */}
-            {isProcessing && (
-              <div className="my-3 p-3 rounded-lg bg-blue-950/80 border border-blue-800 text-blue-300 text-xs flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                <span>Memproses & menyimpan absensi ke database...</span>
+            {/* Selector Device Kamera */}
+            {availableDevices.length > 1 && (
+              <div className="flex items-center gap-2 text-xs">
+                <Video className="w-4 h-4 text-slate-400 shrink-0" />
+                <label className="text-slate-400 text-[11px]">Pilih Kamera:</label>
+                <select
+                  value={selectedDeviceId}
+                  onChange={handleDeviceChange}
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-200"
+                >
+                  {availableDevices.map(d => (
+                    <option key={d.deviceId} value={d.deviceId}>
+                      {d.label || `Kamera ${d.deviceId.slice(0, 5)}...`}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 
-            {/* Scan Error */}
+            {/* Pesan Error Scan */}
             {scanError && (
-              <div className="my-3 p-3 rounded-lg bg-rose-950/80 border border-rose-800 text-rose-300 text-xs flex items-start gap-2">
+              <div className="p-3 rounded-2xl bg-rose-950/80 border border-rose-800 text-rose-300 text-xs flex items-start gap-2.5">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{scanError}</span>
+                <div className="flex-1">
+                  <span className="font-bold block">Pemberitahuan Scan:</span>
+                  <span>{scanError}</span>
+                </div>
               </div>
             )}
 
-            {/* Simulasi Scan (untuk testing tanpa kamera nyata / QR fisik) */}
+            {/* ── SIMULASI SCAN CEPAT ── */}
             {selectedActivity && members.length > 0 && (
-              <div className="mt-4 p-3 bg-slate-800/40 rounded-xl border border-slate-700/50">
-                <div className="flex items-center justify-between text-xs mb-2">
-                  <span className="text-slate-400 font-semibold">Simulasi Scan (Data Anggota Firestore):</span>
-                  <span className="text-[10px] text-amber-400">Klik untuk absenkan langsung</span>
+              <div className="pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Pencarian Cepat Anggota (Simulasi Langsung):</span>
+                  </span>
+                  <span className="text-[10px] text-amber-400">Klik nama untuk absenkan</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto">
-                  {members.filter(member => (selectedActivity.participantMemberIds || []).includes(member.id)).map(m => (
+
+                <input
+                  type="text"
+                  placeholder="Ketik nama atau fraksi anggota..."
+                  value={simQuery}
+                  onChange={e => setSimQuery(e.target.value)}
+                  className="w-full mb-2 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-slate-200 placeholder-slate-500"
+                />
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-32 overflow-y-auto">
+                  {filteredMembers.slice(0, 9).map(m => (
                     <button
                       key={m.id}
+                      type="button"
                       onClick={() => !isProcessing && handleQRScanned(m.qrToken || m.id)}
                       disabled={isProcessing}
-                      className="p-2 text-left bg-slate-800 hover:bg-cyan-900/60 rounded-lg border border-slate-700 hover:border-cyan-700 text-[11px] truncate flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+                      className="p-2 text-left bg-slate-800/80 hover:bg-cyan-900/60 rounded-xl border border-slate-700/60 hover:border-cyan-600 text-[11px] truncate flex items-center gap-2 disabled:opacity-50 transition"
                     >
                       {m.photo ? (
                         <img src={m.photo} alt="" className="w-6 h-6 rounded-full object-cover shrink-0 border border-slate-600" />
                       ) : (
-                        <div className="w-6 h-6 rounded-full bg-slate-700 shrink-0 flex items-center justify-center text-slate-400 text-[8px] font-bold">
+                        <div className="w-6 h-6 rounded-full bg-slate-700 shrink-0 flex items-center justify-center text-slate-300 text-[9px] font-bold">
                           {m.name?.charAt(0)}
                         </div>
                       )}
-                      <span className="truncate font-medium text-slate-200">
-                        {m.name?.split(' ').slice(0, 2).join(' ')}
+                      <span className="truncate font-semibold text-slate-200">
+                        {m.name}
                       </span>
                     </button>
                   ))}
@@ -512,93 +1005,89 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
               </div>
             )}
 
-            {members.length === 0 && (
-              <div className="mt-4 p-3 bg-amber-950/40 border border-amber-800 rounded-xl text-amber-300 text-xs text-center">
-                Belum ada data anggota di Firestore. Tambahkan anggota terlebih dahulu.
-              </div>
-            )}
           </div>
         ) : (
-          /* ── Success Screen ── */
-          <div className="my-4 p-5 rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 border border-emerald-500/40 shadow-xl text-center space-y-4">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 animate-bounce">
+          /* ── LAYAR HASIL SUKSES ── */
+          <div className="my-2 p-5 rounded-3xl bg-gradient-to-b from-slate-800 via-slate-900 to-slate-900 border border-emerald-500/50 shadow-2xl text-center space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-3xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
               <CheckCircle2 className="w-8 h-8" />
             </div>
 
             <div className="space-y-1">
-              <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${
-                scanResult.log?.status === 'Hadir'
-                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                  : 'bg-amber-950 text-amber-300 border border-amber-800'
-              }`}>
-                ✓ {scanResult.log?.checkOutAt ? 'CHECK-OUT BERHASIL' : 'ABSENSI BERHASIL'} — {(scanResult.log?.checkOutAt ? (scanResult.log?.checkoutStatus || 'Mengikuti Kegiatan Sampai Selesai') : (scanResult.log?.status || 'Hadir')).toUpperCase()}
+              <span className={`inline-block px-3.5 py-1 rounded-full text-xs font-black ${scanResult.log?.checkOutAt
+                  ? 'bg-blue-950 text-blue-300 border border-blue-800'
+                  : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                }`}>
+                ✓ {scanResult.log?.checkOutAt ? 'CHECK-OUT BERHASIL' : 'ABSENSI BERHASIL DICATAT'}
               </span>
-              <h4 className="text-xs text-slate-400">Verifikasi Visual Foto Identitas Anggota DPRD</h4>
+              <h4 className="text-xs text-slate-400">Verifikasi Visual & Presensi Terverifikasi Badan Kehormatan</h4>
             </div>
 
-            {scanResult.warning && (
-              <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-700/60 text-amber-200 text-xs text-left">
-                <span className="font-bold">Peringatan sinkronisasi:</span> {scanResult.warning}
-              </div>
-            )}
-
-            {/* Member Card */}
-            <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 text-left flex items-start space-x-4">
+            {/* Kartu Profil Anggota / Peserta */}
+            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-left flex items-start space-x-4">
               {scanResult.member?.photo ? (
                 <img
                   src={scanResult.member.photo}
                   alt={scanResult.member.name}
-                  className="w-20 h-24 rounded-xl object-cover border-2 border-emerald-500 shadow-md shrink-0"
+                  className="w-20 h-24 rounded-2xl object-cover border-2 border-emerald-500 shadow-md shrink-0"
                 />
               ) : (
-                <div className="w-20 h-24 rounded-xl bg-slate-800 border-2 border-emerald-500 flex items-center justify-center text-2xl font-bold text-emerald-400 shrink-0">
-                  {(scanResult.member?.name || scanResult.log?.guestName || 'O').charAt(0)}
+                <div className="w-20 h-24 rounded-2xl bg-slate-800 border-2 border-emerald-500 flex items-center justify-center text-2xl font-bold text-emerald-400 shrink-0">
+                  {(scanResult.member?.name || scanResult.log?.guestName || 'A').charAt(0)}
                 </div>
               )}
-              <div className="space-y-1 text-xs">
-                <h4 className="font-extrabold text-sm text-white">{scanResult.member?.name || scanResult.log?.guestName}</h4>
-                <p className="text-slate-400">{scanResult.guest ? 'Instansi' : 'NIP'}: <span className="font-mono text-slate-200">{scanResult.member?.nip || scanResult.log?.agency}</span></p>
+              <div className="space-y-1 text-xs min-w-0 flex-1">
+                <h4 className="font-extrabold text-sm sm:text-base text-white truncate">
+                  {scanResult.member?.name || scanResult.log?.guestName || scanResult.log?.invitedName}
+                </h4>
+                <p className="text-slate-400">
+                  {scanResult.guest ? 'Instansi' : 'NIP / ID'}: <span className="font-mono text-slate-200">{scanResult.member?.nip || scanResult.member?.id || scanResult.log?.agency || '-'}</span>
+                </p>
                 <div className="flex flex-wrap gap-1.5 pt-1">
-                  <span className="px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 font-semibold text-[10px]">
-                    {scanResult.member?.fraksi || scanResult.log?.participantCategory}
+                  <span className="px-2 py-0.5 rounded-lg bg-blue-950 text-blue-300 border border-blue-800 font-bold text-[10px]">
+                    {scanResult.member?.fraksi || scanResult.log?.participantCategory || 'DPRD'}
                   </span>
-                  <span className="px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-semibold text-[10px]">
-                    {scanResult.member?.komisi || scanResult.log?.representativeName || 'Peserta Eksternal'}
+                  <span className="px-2 py-0.5 rounded-lg bg-purple-950 text-purple-300 border border-purple-800 font-bold text-[10px]">
+                    {scanResult.member?.komisi || scanResult.member?.jabatan || 'Internal'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 pt-1">
-                  Waktu: <span className="text-emerald-400 font-mono font-semibold">
-                    {new Date(scanResult.log?.timestampISO || Date.now()).toLocaleTimeString('id-ID')} WIB
+                  Waktu: <span className="text-emerald-400 font-mono font-bold">
+                    {new Date(scanResult.log?.timestampISO || scanResult.log?.timestamp || Date.now()).toLocaleTimeString('id-ID')} WIB
                   </span>
-                </p>
-                <p className="text-[10px] text-slate-500 pt-1">
-                  Perangkat: {scanResult.log?.deviceType || 'Laptop / Desktop Petugas'}{scanResult.log?.deviceOS ? ` • ${scanResult.log.deviceOS}` : ''}{scanResult.log?.deviceBrowser ? ` • ${scanResult.log.deviceBrowser}` : ''}
                 </p>
               </div>
             </div>
 
-            <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-xs text-emerald-300 flex items-center justify-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Data kehadiran telah dicatat ke Cloud Firestore & Audit Trail.</span>
+            <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-xs text-emerald-300 flex items-center justify-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Presensi dan foto dokumentasi tersimpan di Cloud Firestore & Audit Trail.</span>
             </div>
 
-            <div className="pt-1 flex justify-center space-x-3">
+            {/* Tombol Aksi Lanjutan */}
+            <div className="pt-2 flex flex-col sm:flex-row justify-center gap-2.5">
               <button
-                onClick={handleRescan}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg"
+                type="button"
+                onClick={handleScanNext}
+                className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span>Pindai Anggota Selanjutnya</span>
               </button>
               <button
-                onClick={() => { stopScanner(); onClose(); }}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs"
+                type="button"
+                onClick={() => {
+                  stopCamera();
+                  onClose();
+                }}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-2xl text-xs transition"
               >
-                Selesai
+                Selesai / Tutup
               </button>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );

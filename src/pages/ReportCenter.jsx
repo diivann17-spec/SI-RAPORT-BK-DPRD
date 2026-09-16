@@ -6,12 +6,14 @@ import {
   Building2,
   CalendarDays,
   FileSpreadsheet,
+  Image,
   Printer,
   Search,
   Users,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { formatCheckInWithStatus } from '../utils/raportUtils';
+import { getAttendancePhoto } from '../utils/attendancePhotoStore';
 import dprdLogo from '../logo.png';
 
 function PrintableReportHeader({ title, subtitle }) {
@@ -31,7 +33,9 @@ function PrintableReportHeader({ title, subtitle }) {
   );
 }
 
-function PrintableAttendanceTable({ rows, getName, getPosition, getAgency }) {
+const getAttendanceId = (log) => log.attendanceId || log.id;
+
+function PrintableAttendanceTable({ rows, getName, getPosition, getAgency, includeAgency = true }) {
   const rowCount = Math.max(12, rows.length);
   const formatTime = value => {
     if (!value) return '-';
@@ -47,10 +51,10 @@ function PrintableAttendanceTable({ rows, getName, getPosition, getAgency }) {
             <th className="border border-black p-1 text-center w-8">No</th>
             <th className="border border-black p-1 text-left">Nama</th>
             <th className="border border-black p-1 text-left">Jabatan</th>
-            <th className="border border-black p-1 text-left">Instansi</th>
+            {includeAgency && <th className="border border-black p-1 text-left">Instansi</th>}
             <th className="border border-black p-1 text-center">Check-in</th>
             <th className="border border-black p-1 text-center">Check-out</th>
-            <th className="border border-black p-1 text-left">Keterangan</th>
+            <th className="border border-black p-1 text-left">Status</th>
           </tr>
         </thead>
         <tbody>
@@ -61,7 +65,7 @@ function PrintableAttendanceTable({ rows, getName, getPosition, getAgency }) {
                 <td className="border border-black p-1 text-center">{index + 1}</td>
                 <td className="border border-black p-1">{row ? getName(row) : ''}</td>
                 <td className="border border-black p-1">{row ? getPosition(row) : ''}</td>
-                <td className="border border-black p-1">{row ? getAgency(row) : ''}</td>
+                {includeAgency && <td className="border border-black p-1">{row ? getAgency(row) : ''}</td>}
                 <td className="border border-black p-1 text-center">{row ? formatTime(row.checkInAt || row.timestamp) : ''}</td>
                 <td className="border border-black p-1 text-center">{row ? formatTime(row.checkOutAt) : ''}</td>
                 <td className="border border-black p-1">{row ? [row.status, row.checkoutStatus].filter(Boolean).join(' | ') : ''}</td>
@@ -74,13 +78,73 @@ function PrintableAttendanceTable({ rows, getName, getPosition, getAgency }) {
   );
 }
 
+function PrintableDocumentationAppendix({ rows, activities, formatDateTime, photoUrls, removeAttendancePhoto }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print:grid-cols-2 print:gap-4 text-black">
+      {rows.length === 0 ? (
+        <p className="col-span-full py-8 text-center text-xs text-gray-500">Belum ada foto dokumentasi absensi.</p>
+      ) : rows.map(log => {
+        const activity = activities.find(item => item.id === (log.activityId || log.agendaId));
+        const name = log.participantType === 'EXTERNAL'
+          ? (log.isRepresented ? log.representativeName : log.guestName || log.invitedName)
+          : log.memberName;
+        const position = log.participantType === 'EXTERNAL'
+          ? (log.isRepresented ? log.representativePosition : log.position)
+          : 'Anggota DPRD';
+        const attendanceId = getAttendanceId(log);
+        const checkInPhotoSource = photoUrls[`${attendanceId}:CHECK_IN`] || (String(log.documentationPhoto || '').startsWith('data:image/') ? log.documentationPhoto : null);
+        const checkOutPhotoSource = photoUrls[`${attendanceId}:CHECK_OUT`] || (String(log.checkoutPhoto || '').startsWith('data:image/') ? log.checkoutPhoto : null);
+
+        return (
+          <article key={attendanceId} className="border border-gray-400 rounded-lg p-3 break-inside-avoid bg-white">
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              {['Foto Check-in', 'Foto Check-out'].map(label => {
+                const photo = label === 'Foto Check-in' ? checkInPhotoSource : checkOutPhotoSource;
+                return (
+                  <figure key={label}>
+                    {photo ? <img src={photo} alt={`${label} ${name || ''}`} className="w-full h-40 object-cover border border-gray-300 rounded" /> : <div className="flex h-40 items-center justify-center rounded border border-dashed border-gray-400 text-center text-[10px] text-gray-500">Foto dokumentasi tidak tersedia</div>}
+                    <figcaption className="mt-1 text-center text-[9px] font-bold">{label}</figcaption>
+                    {(label === 'Foto Check-in' ? (log.documentationPhotoRef || log.checkInPhotoId || log.documentationPhoto) : (log.checkoutPhotoRef || log.checkOutPhotoId || log.checkoutPhoto)) && (
+                      <button
+                        type="button"
+                        className="no-print mt-1 text-[9px] font-bold text-rose-600 hover:text-rose-500"
+                        onClick={async () => {
+                          if (!window.confirm('Hapus foto dokumentasi ini?\nFoto yang dihapus tidak dapat dikembalikan.')) return;
+                          const result = await removeAttendancePhoto({ attendanceId, photoType: label === 'Foto Check-in' ? 'CHECK_IN' : 'CHECK_OUT' });
+                          if (!result.success) window.alert(result.message || 'Foto gagal dihapus.');
+                        }}
+                      >
+                        🗑 Hapus
+                      </button>
+                    )}
+                  </figure>
+                );
+              })}
+            </div>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-[10px]">
+              <dt className="font-bold">Nama</dt><dd>{name || '-'}</dd>
+              <dt className="font-bold">Jabatan</dt><dd>{position || '-'}</dd>
+              <dt className="font-bold">Agenda</dt><dd>{activity?.title || log.activityId || '-'}</dd>
+              <dt className="font-bold">Check-in</dt><dd>{formatDateTime(log.checkInAt || log.timestamp)}</dd>
+              <dt className="font-bold">Check-out</dt><dd>{formatDateTime(log.checkOutAt)}</dd>
+              <dt className="font-bold">Status</dt><dd>{log.status || (log.checkOutAt ? 'Selesai' : 'Hadir')}</dd>
+            </dl>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ReportCenter() {
-  const { activities, members, personnel, logs } = useAttendance();
+  const { activities, members, personnel, logs, removeAttendancePhoto } = useAttendance();
   const [personnelSearch, setPersonnelSearch] = useState('');
   const [selectedUnit, setSelectedUnit] = useState('ALL');
   const [externalSearch, setExternalSearch] = useState('');
   const [selectedReportActivityId, setSelectedReportActivityId] = useState('ALL');
   const [printTarget, setPrintTarget] = useState(null);
+  const [photoUrls, setPhotoUrls] = useState({});
+  const [photosLoading, setPhotosLoading] = useState(false);
 
   const selectedReportActivity = activities.find(activity => activity.id === selectedReportActivityId);
 
@@ -94,9 +158,19 @@ export default function ReportCenter() {
   }, []);
 
   const printReport = (target) => {
+    if (target === 'documentation' && photosLoading) return;
     setPrintTarget(target);
     document.body.classList.add('report-center-printing');
-    window.setTimeout(() => window.print(), 100);
+    window.setTimeout(async () => {
+      const images = Array.from(document.querySelectorAll('.report-section-target img'));
+      await Promise.all(images.map(image => image.complete
+        ? Promise.resolve()
+        : new Promise(resolve => {
+          image.addEventListener('load', resolve, { once: true });
+          image.addEventListener('error', resolve, { once: true });
+        })));
+      window.print();
+    }, 150);
   };
 
   const memberLogs = useMemo(
@@ -123,6 +197,36 @@ export default function ReportCenter() {
     () => externalLogs.filter(log => selectedReportActivityId === 'ALL' || (log.activityId || log.agendaId) === selectedReportActivityId),
     [externalLogs, selectedReportActivityId]
   );
+
+  const documentationLogs = useMemo(
+    () => [...reportMemberLogs, ...reportExternalLogs].filter(log => log.documentationPhotoRef || log.checkInPhotoId || log.checkoutPhotoRef || log.checkOutPhotoId || log.documentationPhoto || log.checkoutPhoto),
+    [reportMemberLogs, reportExternalLogs]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setPhotosLoading(true);
+    const loadPhotos = async () => {
+      const entries = await Promise.all(documentationLogs.flatMap(log => [
+        (log.documentationPhotoRef || log.checkInPhotoId) ? getAttendancePhoto(log.documentationPhotoRef || log.checkInPhotoId).then(url => [`${getAttendanceId(log)}:CHECK_IN`, url]) : null,
+        (log.checkoutPhotoRef || log.checkOutPhotoId) ? getAttendancePhoto(log.checkoutPhotoRef || log.checkOutPhotoId).then(url => [`${getAttendanceId(log)}:CHECK_OUT`, url]) : null,
+      ].filter(Boolean)));
+      if (!cancelled) {
+        setPhotoUrls(Object.fromEntries(entries.filter(([, url]) => url)));
+        setPhotosLoading(false);
+      }
+    };
+    loadPhotos().catch(() => {
+      if (!cancelled) {
+        setPhotoUrls({});
+        setPhotosLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+      Object.values(photoUrls).forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [documentationLogs]);
 
   const uniqueUnits = useMemo(
     () =>
@@ -323,10 +427,39 @@ export default function ReportCenter() {
               const member = members.find(entry => entry.id === item.memberId);
               return member?.fraksi || item.memberFraksi || 'DPRD Kabupaten Cirebon';
             }}
+            includeAgency={false}
           />
           <div className="print:hidden">
             <RaportList />
           </div>
+        </div>
+      </section>
+
+      <section className={`report-section ${printTarget && printTarget !== 'documentation' ? 'report-section-hidden-print' : ''} ${printTarget === 'documentation' ? 'report-section-target' : ''} bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden`}>
+        <PrintableReportHeader
+          title="LAMPIRAN DOKUMENTASI ABSENSI"
+          subtitle={`FOTO BUKTI KEHADIRAN${selectedReportActivity ? ` | ${selectedReportActivity.title} | ${selectedReportActivity.date}` : ''}`}
+        />
+        <div className="print-hide-report-control px-4 sm:px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+              <Image className="w-4 h-4 text-emerald-600" /> 2. Lampiran Dokumentasi Absensi
+            </h2>
+            <p className="text-[11px] text-slate-500 mt-1">Foto check-in dan check-out terhubung dengan log peserta, agenda, waktu, dan status.</p>
+          </div>
+          <button type="button" onClick={() => printReport('documentation')} disabled={photosLoading} className="print-hide-report-control px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition disabled:cursor-wait disabled:opacity-50">
+            <Printer className="w-4 h-4" /> Cetak Lampiran / PDF
+          </button>
+        </div>
+        <div className="p-3 sm:p-4">
+          <div className="print-hide-report-control mb-3">
+            <select value={selectedReportActivityId} onChange={event => setSelectedReportActivityId(event.target.value)} className="w-full sm:max-w-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs p-2 rounded-xl border border-slate-300 dark:border-slate-700 font-semibold">
+              <option value="ALL">Semua Agenda</option>
+              {activities.map(activity => <option key={activity.id} value={activity.id}>{activity.title} • {activity.date} • {activity.startTime}–{activity.endTime}</option>)}
+            </select>
+          </div>
+          {photosLoading && <p className="mb-3 text-xs text-slate-500">Memuat foto dokumentasi dari penyimpanan lokal...</p>}
+          <PrintableDocumentationAppendix rows={documentationLogs} activities={activities} formatDateTime={formatDateTime} photoUrls={photoUrls} removeAttendancePhoto={removeAttendancePhoto} />
         </div>
       </section>
 

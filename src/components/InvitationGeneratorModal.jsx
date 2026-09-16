@@ -49,7 +49,7 @@ export default function InvitationGeneratorModal({ isOpen, onClose, activity, me
   const baseUrl = getInvitationBaseUrl();
   // Payload ringkas mempercepat kamera membaca QR undangan yang dicetak.
   const getQrValue = (member) => JSON.stringify({ type: 'member', activityId: activity.id, memberId: member.id, token: `${activity.qrToken || activity.id}:${member.id}` });
-  const getOpdQrValue = (recipient) => `${baseUrl}?absen=${encodeURIComponent(activity.id)}&type=opd&guestId=${encodeURIComponent(recipient.id)}&agency=${encodeURIComponent(recipient.agency)}&name=${encodeURIComponent(recipient.invitedName)}&position=${encodeURIComponent(recipient.position || '')}&token=${encodeURIComponent(activity.qrToken || activity.id)}`;
+  const getOpdQrValue = (recipient) => `${baseUrl}?absen=${encodeURIComponent(activity.id)}&type=guest&guestId=${encodeURIComponent(recipient.id)}&agency=${encodeURIComponent(recipient.agency)}&name=${encodeURIComponent(recipient.invitedName)}&position=${encodeURIComponent(recipient.position || '')}&category=${encodeURIComponent(recipient.participantCategory || 'OPD/INSTANSI')}&isRepresented=${recipient.isRepresented ? 'true' : 'false'}&representativeName=${encodeURIComponent(recipient.representativeName || '')}&representativePosition=${encodeURIComponent(recipient.representativePosition || '')}&token=${encodeURIComponent(activity.qrToken || activity.id)}`;
   const addOpdRecipient = async (event) => {
     event.preventDefault();
     if (!opdForm.agency.trim() || !opdForm.invitedName.trim()) return;

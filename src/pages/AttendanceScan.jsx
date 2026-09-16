@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
 import QRScannerModal from '../components/QRScannerModal';
 import ManualAttendanceModal from '../components/ManualAttendanceModal';
 import ActivityQRModal from '../components/ActivityQRModal';
 import GuestAttendanceModal from '../components/GuestAttendanceModal';
 import LPJViewerModal from '../components/LPJViewerModal';
+import { getAttendancePhoto } from '../utils/attendancePhotoStore';
 import { getStatusBadge, getMethodBadge, formatCheckInWithStatus } from '../utils/raportUtils';
 import {
   Camera,
@@ -36,6 +37,7 @@ export default function AttendanceScan() {
     loading,
     leaveRequests,
     reviewLeaveRequest,
+    removeAttendancePhoto,
   } = useAttendance();
 
   const [selectedActivityId, setSelectedActivityId] = useState('');
@@ -47,41 +49,64 @@ export default function AttendanceScan() {
       const active = activities.find(a => a.status === 'ACTIVE') || activities[0];
       setSelectedActivityId(active.id);
     }
-  }, [activities]);
+  }, [activities, selectedActivityId]);
 
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(true);
   const [manualModalState, setManualModalState] = useState({ isOpen: false, memberId: null });
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
   const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
   const [isLPJModalOpen, setIsLPJModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [attendancePhotoUrls, setAttendancePhotoUrls] = useState({});
 
-  const selectedActivity = activities.find(a => a.id === selectedActivityId) || activities[0];
-  const activityLogs = logs.filter(l => l.activityId === selectedActivityId);
-  const internalLogs = activityLogs.filter(l => l.participantType !== 'EXTERNAL');
-  const externalLogs = activityLogs.filter(l => l.participantType === 'EXTERNAL');
-  const pendingLeaveRequests = leaveRequests.filter(req => req.activityId === selectedActivityId && req.status === 'PENDING');
-  const participantIds = Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
-  const participantMembers = [...members, ...personnel].filter(member => participantIds.includes(member.id));
+  const selectedActivity = useMemo(() => {
+    return activities.find(a => a.id === selectedActivityId) || activities[0];
+  }, [activities, selectedActivityId]);
+
+  const activityLogs = useMemo(() => {
+    return logs.filter(l => l.activityId === selectedActivityId);
+  }, [logs, selectedActivityId]);
+
+  const internalLogs = useMemo(() => {
+    return activityLogs.filter(l => l.participantType !== 'EXTERNAL');
+  }, [activityLogs]);
+
+  const externalLogs = useMemo(() => {
+    return activityLogs.filter(l => l.participantType === 'EXTERNAL');
+  }, [activityLogs]);
+
+  const pendingLeaveRequests = useMemo(() => {
+    return leaveRequests.filter(req => req.activityId === selectedActivityId && req.status === 'PENDING');
+  }, [leaveRequests, selectedActivityId]);
+
+  const participantIds = useMemo(() => {
+    return Array.isArray(selectedActivity?.participantMemberIds) ? selectedActivity.participantMemberIds : [];
+  }, [selectedActivity]);
+
+  const participantMembers = useMemo(() => {
+    return [...members, ...personnel].filter(member => participantIds.includes(member.id));
+  }, [members, personnel, participantIds]);
 
   // Members attendance list
-  const memberAttendanceList = participantMembers.map(m => {
-    const log = internalLogs.find(l => l.memberId === m.id);
-    return {
-      member: m,
-      log
-    };
-  }).filter(item => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      item.member.name.toLowerCase().includes(q) ||
-      String(item.member.fraksi || item.member.unit || '').toLowerCase().includes(q) ||
-      String(item.member.komisi || item.member.jabatan || '').toLowerCase().includes(q)
-    );
-  });
+  const memberAttendanceList = useMemo(() => {
+    return participantMembers.map(m => {
+      const log = internalLogs.find(l => l.memberId === m.id);
+      return { member: m, log };
+    }).filter(item => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        item.member.name.toLowerCase().includes(q) ||
+        String(item.member.fraksi || item.member.unit || '').toLowerCase().includes(q) ||
+        String(item.member.komisi || item.member.jabatan || '').toLowerCase().includes(q)
+      );
+    });
+  }, [participantMembers, internalLogs, searchQuery]);
 
-  const participantLogs = internalLogs.filter(log => participantIds.includes(log.memberId));
+  const participantLogs = useMemo(() => {
+    return internalLogs.filter(log => participantIds.includes(log.memberId));
+  }, [internalLogs, participantIds]);
+
   const checkedInCount = participantLogs.length;
   const dinasCount = participantLogs.filter(l => l.status === 'Dinas Luar' || l.status === 'Dinas').length;
   const izinCount = participantLogs.filter(l => l.status === 'Izin').length;
@@ -89,6 +114,74 @@ export default function AttendanceScan() {
   const belumAbsenCount = Math.max(0, participantMembers.length - participantLogs.length);
   const checkedOutCount = participantLogs.filter(log => log.checkOutAt).length;
   const stillAttendingCount = Math.max(0, checkedInCount - checkedOutCount);
+
+  // Signature string untuk mendeteksi perubahan foto tanpa infinite loop
+  const photoSignature = useMemo(() => {
+    return activityLogs
+      .map(l => `${l.id}:${l.documentationPhotoRef || l.checkInPhotoId || ''}:${l.checkoutPhotoRef || l.checkOutPhotoId || ''}`)
+      .join('|');
+  }, [activityLogs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let createdUrls = [];
+
+    const loadPhotos = async () => {
+      if (activityLogs.length === 0) {
+        if (!cancelled) setAttendancePhotoUrls({});
+        return;
+      }
+      const entries = await Promise.all(activityLogs.flatMap(log => [
+        (log.documentationPhotoRef || log.checkInPhotoId) ? getAttendancePhoto(log.documentationPhotoRef || log.checkInPhotoId).then(url => {
+          if (url) createdUrls.push(url);
+          return [`${log.attendanceId || log.id}:CHECK_IN`, url];
+        }) : null,
+        (log.checkoutPhotoRef || log.checkOutPhotoId) ? getAttendancePhoto(log.checkoutPhotoRef || log.checkOutPhotoId).then(url => {
+          if (url) createdUrls.push(url);
+          return [`${log.attendanceId || log.id}:CHECK_OUT`, url];
+        }) : null,
+      ].filter(Boolean)));
+
+      if (!cancelled) {
+        const nextMap = Object.fromEntries(entries.filter(([, url]) => url));
+        setAttendancePhotoUrls(nextMap);
+      }
+    };
+
+    loadPhotos().catch(() => { });
+
+    return () => {
+      cancelled = true;
+      createdUrls.forEach(url => {
+        try { URL.revokeObjectURL(url); } catch (e) { }
+      });
+    };
+  }, [photoSignature]);
+
+  const AttendancePhoto = ({ log, type }) => {
+    const attendanceId = log.attendanceId || log.id;
+    const photoRef = type === 'CHECK_IN'
+      ? (log.documentationPhotoRef || log.checkInPhotoId || log.documentationPhoto)
+      : (log.checkoutPhotoRef || log.checkOutPhotoId || log.checkoutPhoto);
+    const photoUrl = attendancePhotoUrls[`${attendanceId}:${type}`];
+    const handleDelete = async () => {
+      if (!photoRef || !window.confirm('Hapus foto dokumentasi ini?\nFoto yang dihapus tidak dapat dikembalikan.')) return;
+      const result = await removeAttendancePhoto({ attendanceId, photoType: type });
+      if (!result.success) window.alert(result.message || 'Foto gagal dihapus.');
+    };
+    return (
+      <div className="space-y-1">
+        {photoUrl ? (
+          <img src={photoUrl} alt={`Foto ${type === 'CHECK_IN' ? 'check-in' : 'check-out'}`} className="h-16 w-24 rounded-lg border border-emerald-500/30 object-cover" />
+        ) : (
+          <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-dashed border-slate-600 px-1 text-center text-[9px] text-slate-500">
+            Foto dokumentasi tidak tersedia
+          </div>
+        )}
+        {photoRef && <button type="button" onClick={handleDelete} className="text-[9px] font-bold text-rose-400 hover:text-rose-300">🗑 Hapus</button>}
+      </div>
+    );
+  };
 
   if (loading) {
     return (
@@ -111,7 +204,7 @@ export default function AttendanceScan() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      
+
       {/* Header Banner */}
       <div className="p-4 sm:p-6 rounded-3xl bg-gradient-to-r from-cyan-950 via-slate-900 to-slate-900 border border-slate-800 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="space-y-1">
@@ -232,11 +325,10 @@ export default function AttendanceScan() {
       <div className="flex items-center gap-2 p-1 bg-slate-900/90 border border-slate-800 rounded-2xl">
         <button
           onClick={() => setActiveSubTab('internal')}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
-            activeSubTab === 'internal'
-              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${activeSubTab === 'internal'
+            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+            : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           <Users className="w-4 h-4" />
           <span>Peserta Internal ({participantMembers.length})</span>
@@ -244,11 +336,10 @@ export default function AttendanceScan() {
 
         <button
           onClick={() => setActiveSubTab('external')}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
-            activeSubTab === 'external'
-              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${activeSubTab === 'external'
+            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+            : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           <Building2 className="w-4 h-4" />
           <span>Tamu Eksternal & OPD ({externalLogs.length})</span>
@@ -256,11 +347,10 @@ export default function AttendanceScan() {
 
         <button
           onClick={() => setActiveSubTab('history')}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
-            activeSubTab === 'history'
-              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${activeSubTab === 'history'
+            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+            : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           <History className="w-4 h-4" />
           <span>Riwayat Scan & Perangkat</span>
@@ -352,6 +442,12 @@ export default function AttendanceScan() {
                           {log.checkOutAt && ` • OUT ${new Date(log.checkOutAt).toLocaleTimeString('id-ID')} WIB`}
                         </span>
                       )}
+                      {log && (
+                        <div className="mt-2 flex gap-2 text-[9px] text-slate-400">
+                          <div><AttendancePhoto log={log} type="CHECK_IN" /><span>Check-in</span></div>
+                          <div><AttendancePhoto log={log} type="CHECK_OUT" /><span>Check-out</span></div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -404,37 +500,41 @@ export default function AttendanceScan() {
                 </table>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {externalLogs.map((gst) => (
-                <div
-                  key={gst.id}
-                  className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-2 shadow-xs"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="text-[10px] font-bold text-teal-400 uppercase tracking-wider block">
-                        {gst.agency}
+                {externalLogs.map((gst) => (
+                  <div
+                    key={gst.id}
+                    className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-2 shadow-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="text-[10px] font-bold text-teal-400 uppercase tracking-wider block">
+                          {gst.agency}
+                        </span>
+                        <h4 className="font-bold text-sm text-white">{gst.invitedName}</h4>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${gst.isRepresented ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'}`}>
+                        {gst.isRepresented ? 'Diwakili' : 'Hadir Langsung'}
                       </span>
-                      <h4 className="font-bold text-sm text-white">{gst.invitedName}</h4>
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${gst.isRepresented ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'}`}>
-                      {gst.isRepresented ? 'Diwakili' : 'Hadir Langsung'}
-                    </span>
-                  </div>
 
-                  {gst.isRepresented && (
-                    <div className="p-2.5 bg-slate-800/60 rounded-xl text-xs border border-slate-700/60">
-                      <span className="text-slate-400 block text-[10px]">Perwakilan Delegasi:</span>
-                      <span className="font-bold text-cyan-300">{gst.representativeName}</span>
-                      <span className="text-slate-400 text-[11px] block">({gst.representativePosition})</span>
+                    {gst.isRepresented && (
+                      <div className="p-2.5 bg-slate-800/60 rounded-xl text-xs border border-slate-700/60">
+                        <span className="text-slate-400 block text-[10px]">Perwakilan Delegasi:</span>
+                        <span className="font-bold text-cyan-300">{gst.representativeName}</span>
+                        <span className="text-slate-400 text-[11px] block">({gst.representativePosition})</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-800">
+                      <span>Waktu: {new Date(gst.timestamp).toLocaleTimeString('id-ID')} WIB</span>
+                      <span className="italic">{gst.note || '-'}</span>
                     </div>
-                  )}
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-800">
-                    <span>Waktu: {new Date(gst.timestamp).toLocaleTimeString('id-ID')} WIB</span>
-                    <span className="italic">{gst.note || '-'}</span>
+                    <div className="flex gap-2 pt-2 text-[9px] text-slate-400">
+                      <div><AttendancePhoto log={gst} type="CHECK_IN" /><span>Check-in</span></div>
+                      <div><AttendancePhoto log={gst} type="CHECK_OUT" /><span>Check-out</span></div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
               </div>
             </div>
           )}

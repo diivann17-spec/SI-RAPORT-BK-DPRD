@@ -124,20 +124,93 @@ export default function ActivityList() {
     };
   });
 
-  const handleRoomChange = (roomId) => handleChange('roomId', roomId);
+  const [isLocating, setIsLocating] = useState(false);
+  const [gpsAccuracyInfo, setGpsAccuracyInfo] = useState(null);
+
+  const handleRoomChange = (roomId) => {
+    handleChange('roomId', roomId);
+    const selectedRoom = rooms?.find(r => r.id === roomId);
+    if (selectedRoom) {
+      if (selectedRoom.lat && selectedRoom.lng) {
+        handleChange('targetLat', Number(Number(selectedRoom.lat).toFixed(6)));
+        handleChange('targetLng', Number(Number(selectedRoom.lng).toFixed(6)));
+        setGpsAccuracyInfo({ accuracy: 0, source: `Master Ruangan: ${selectedRoom.name}` });
+        setSaveMsg(`Koordinat otomatis disinkronkan dari data Master ${selectedRoom.name}.`);
+      }
+      if (selectedRoom.locationName && !formData.locationName) {
+        handleChange('locationName', selectedRoom.locationName);
+      }
+    }
+  };
 
   const captureAgendaLocation = () => {
     if (!navigator.geolocation) {
       setSaveMsg('Perangkat/browser tidak mendukung GPS untuk menetapkan titik lokasi.');
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      position => {
-        handleChange('targetLat', Number(position.coords.latitude.toFixed(6)));
-        handleChange('targetLng', Number(position.coords.longitude.toFixed(6)));
-        setSaveMsg('Titik lokasi agenda berhasil diambil dari perangkat ini.');
+
+    setIsLocating(true);
+    setSaveMsg('Mengunci sinyal satelit GPS untuk mendapatkan akurasi maksimal...');
+    setGpsAccuracyInfo(null);
+
+    let bestPosition = null;
+    let samplesCount = 0;
+    const maxSamples = 5;
+
+    const timeoutId = setTimeout(() => {
+      navigator.geolocation.clearWatch(watchId);
+      setIsLocating(false);
+      if (bestPosition) {
+        applyBestPosition(bestPosition);
+      } else {
+        setSaveMsg('Waktu pencarian sinyal GPS habis. Coba di dekat jendela atau luar ruangan.');
+      }
+    }, 12000);
+
+    const applyBestPosition = (pos) => {
+      const lat = Number(pos.coords.latitude.toFixed(6));
+      const lng = Number(pos.coords.longitude.toFixed(6));
+      const accuracy = Math.round(pos.coords.accuracy || 0);
+
+      handleChange('targetLat', lat);
+      handleChange('targetLng', lng);
+      setGpsAccuracyInfo({ accuracy, source: 'Sensor GPS Perangkat' });
+
+      let quality = 'Cukup';
+      if (accuracy <= 10) quality = 'Sangat Tinggi (Akurat)';
+      else if (accuracy <= 25) quality = 'Baik';
+      else quality = 'Kurang Presisi (Disarankan radius diperbesar)';
+
+      setSaveMsg(`Titik lokasi agenda berhasil dikunci! (Akurasi: ±${accuracy}m - ${quality})`);
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        samplesCount++;
+        const currentAcc = position.coords.accuracy || 999;
+
+        if (!bestPosition || currentAcc < (bestPosition.coords.accuracy || 999)) {
+          bestPosition = position;
+        }
+
+        // Jika sudah mendapat akurasi sangat presisi (<= 12m) atau mencapai batas sampel
+        if (currentAcc <= 12 || samplesCount >= maxSamples) {
+          clearTimeout(timeoutId);
+          navigator.geolocation.clearWatch(watchId);
+          setIsLocating(false);
+          applyBestPosition(bestPosition || position);
+        }
       },
-      () => setSaveMsg('Gagal mengambil lokasi. Izinkan akses GPS terlebih dahulu.'),
+      (error) => {
+        clearTimeout(timeoutId);
+        navigator.geolocation.clearWatch(watchId);
+        setIsLocating(false);
+        if (bestPosition) {
+          applyBestPosition(bestPosition);
+        } else {
+          setSaveMsg(`Gagal membaca GPS: ${error.message || 'Izin lokasi belum diberikan.'}`);
+        }
+      },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
@@ -832,7 +905,34 @@ export default function ActivityList() {
                   <label className="text-[10px] text-slate-400">Latitude<input type="number" step="0.000001" value={formData.targetLat} onChange={e => handleChange('targetLat', Number(e.target.value))} className="mt-1 w-full p-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white" /></label>
                   <label className="text-[10px] text-slate-400">Longitude<input type="number" step="0.000001" value={formData.targetLng} onChange={e => handleChange('targetLng', Number(e.target.value))} className="mt-1 w-full p-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white" /></label>
                 </div>
-                <button type="button" onClick={captureAgendaLocation} className="mt-2 w-full py-2 rounded-lg bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold">Gunakan Lokasi Perangkat Ini sebagai Titik Agenda</button>
+                <button
+                  type="button"
+                  disabled={isLocating}
+                  onClick={captureAgendaLocation}
+                  className="mt-2 w-full py-2.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isLocating ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                      <span>Mengunci GPS Berakurasi Tinggi (Menunggu sinyal satelit)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Ambil Titik Lokasi Presisi Tinggi (GPS Multi-Sample)</span>
+                    </>
+                  )}
+                </button>
+                {gpsAccuracyInfo && (
+                  <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400 px-1">
+                    <span>Sumber: <strong className="text-slate-300">{gpsAccuracyInfo.source}</strong></span>
+                    {gpsAccuracyInfo.accuracy > 0 && (
+                      <span className={`px-1.5 py-0.5 rounded font-bold ${gpsAccuracyInfo.accuracy <= 15 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'}`}>
+                        Radius Error: ±{gpsAccuracyInfo.accuracy} m
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Catatan / Keterangan Agenda */}

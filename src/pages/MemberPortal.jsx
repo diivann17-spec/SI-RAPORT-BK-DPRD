@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAttendance } from '../context/AttendanceContext';
 import { getRaportCategory, getStatusBadge } from '../utils/raportUtils';
+import { getAttendancePhoto } from '../utils/attendancePhotoStore';
 import ERaportModal from '../components/ERaportModal';
 import { AKD_CATEGORIES } from '../utils/akdUtils';
 import dprdLogo from '../logo.png';
@@ -23,7 +24,8 @@ import {
   Smartphone,
   Navigation,
   ClipboardList,
-  Send
+  Send,
+  Camera
 } from 'lucide-react';
 
 export default function MemberPortal({ onNavigate }) {
@@ -49,10 +51,33 @@ export default function MemberPortal({ onNavigate }) {
   // Ambil data anggota saat ini
   const member = getMemberById(activeMemberId) || members.find(m => m.id === currentUser?.memberId) || members[0];
   const raport = member ? getMemberRaport(member.id, selectedCategory) : null;
-  const memberLogs = logs.filter(l => l.memberId === member?.id && l.participantType !== 'EXTERNAL');
-  const memberLeaveRequests = leaveRequests.filter(req => req.memberId === member?.id);
-
   const defaultLeaveActivityId = activities.find(a => a.status === 'ACTIVE')?.id || activities[0]?.id || '';
+
+  // Foto Presensi
+  const [photoUrls, setPhotoUrls] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPhotos = async () => {
+      const entries = await Promise.all(
+        memberLogs.flatMap(log => [
+          (log.documentationPhotoRef || log.checkInPhotoId)
+            ? getAttendancePhoto(log.documentationPhotoRef || log.checkInPhotoId).then(url => url ? [`${log.id}:CHECK_IN`, url] : null)
+            : null,
+          (log.checkoutPhotoRef || log.checkOutPhotoId)
+            ? getAttendancePhoto(log.checkoutPhotoRef || log.checkOutPhotoId).then(url => url ? [`${log.id}:CHECK_OUT`, url] : null)
+            : null
+        ].filter(Boolean))
+      );
+      if (!cancelled) {
+        setPhotoUrls(Object.fromEntries(entries.filter(Boolean)));
+      }
+    };
+    loadPhotos().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [memberLogs]);
 
   if (!member) {
     return (
@@ -405,6 +430,7 @@ export default function MemberPortal({ onNavigate }) {
                   <th className="p-3">Waktu Presensi</th>
                   <th className="p-3">Status</th>
                   <th className="p-3">Metode / Perangkat</th>
+                  <th className="p-3">Foto Dokumentasi</th>
                   <th className="p-3">Keterangan / SPT</th>
                 </tr>
               </thead>
@@ -412,6 +438,9 @@ export default function MemberPortal({ onNavigate }) {
                 {activities.map(act => {
                   const log = memberLogs.find(l => l.activityId === act.id);
                   const badge = log ? getStatusBadge(log.status) : getStatusBadge('alpha');
+                  const checkInPhoto = log ? (photoUrls[`${log.id}:CHECK_IN`] || (String(log.documentationPhoto || '').startsWith('data:image/') ? log.documentationPhoto : null)) : null;
+                  const checkOutPhoto = log ? (photoUrls[`${log.id}:CHECK_OUT`] || (String(log.checkoutPhoto || '').startsWith('data:image/') ? log.checkoutPhoto : null)) : null;
+
                   return (
                     <tr key={act.id}>
                       <td className="p-3 font-semibold text-slate-900 dark:text-white">{act.title}</td>
@@ -422,6 +451,41 @@ export default function MemberPortal({ onNavigate }) {
                         </span>
                       </td>
                       <td className="p-3 text-[11px]">{log?.method || 'SYSTEM'} ({log?.deviceType || 'Smartphone'})</td>
+                      <td className="p-3">
+                        {log ? (
+                          <div className="flex items-center gap-2">
+                            {checkInPhoto ? (
+                              <div className="relative group">
+                                <img
+                                  src={checkInPhoto}
+                                  alt="Foto Check-in"
+                                  className="w-9 h-9 rounded-lg object-cover border border-emerald-500/50 cursor-pointer shadow-xs"
+                                  onClick={() => window.open(checkInPhoto, '_blank')}
+                                  title="Foto Check-in (Klik untuk perbesar)"
+                                />
+                                <span className="text-[8px] font-bold text-emerald-400 block text-center mt-0.5">IN</span>
+                              </div>
+                            ) : null}
+                            {checkOutPhoto ? (
+                              <div className="relative group">
+                                <img
+                                  src={checkOutPhoto}
+                                  alt="Foto Check-out"
+                                  className="w-9 h-9 rounded-lg object-cover border border-amber-500/50 cursor-pointer shadow-xs"
+                                  onClick={() => window.open(checkOutPhoto, '_blank')}
+                                  title="Foto Check-out (Klik untuk perbesar)"
+                                />
+                                <span className="text-[8px] font-bold text-amber-400 block text-center mt-0.5">OUT</span>
+                              </div>
+                            ) : null}
+                            {!checkInPhoto && !checkOutPhoto && (
+                              <span className="text-[10px] text-slate-500 italic">Tanpa foto</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
+                      </td>
                       <td className="p-3 text-[11px] text-slate-400">
                         {log?.sptNumber && <span className="block font-bold text-indigo-400">{log.sptNumber}</span>}
                         {log?.note || '-'}
