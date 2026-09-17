@@ -61,6 +61,8 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
   const [scanError, setScanError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [simQuery, setSimQuery] = useState('');
+  const [pendingMemberScan, setPendingMemberScan] = useState(null); // { member, activityForScan, invitationToken, scannerLocation, capturedPhoto }
+  const [isSubmittingPhoto, setIsSubmittingPhoto] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -442,90 +444,15 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
       return;
     }
 
-    // Cek apakah sudah ada log kehadiran
-    const existingAttendance = ctxLogs.find(log =>
-      log.activityId === activityForScan.id &&
-      log.memberId === member.id &&
-      log.participantType !== 'EXTERNAL'
-    );
-
-    // Proses Check-Out Anggota
-    if (existingAttendance) {
-      if (existingAttendance.checkOutAt) {
-        setScanError(`${member.name} sudah melakukan Check-out pada agenda ini.`);
-        recoverScan();
-        return;
-      }
-      if (!window.confirm(`Konfirmasi Check-out untuk ${member.name}?`)) {
-        recoverScan();
-        return;
-      }
-      let checkoutPhoto = null;
-      try {
-        checkoutPhoto = documentationPhoto
-          ? await saveAttendancePhoto({
-            dataUrl: documentationPhoto,
-            activityId: activityForScan.id,
-            participantId: member.id,
-            eventType: 'CHECK_OUT',
-            logId: existingAttendance.id
-          })
-          : null;
-      } catch (error) { }
-
-      const checkoutResult = await ctxCheckoutAttendance({
-        activityId: activityForScan.id,
-        memberId: member.id,
-        method: activityForScan.gpsRequired ? 'GPS_ONLINE' : 'QR_WEBCAM',
-        operatorName: 'Petugas Laptop Webcam Scanner',
-        documentationPhotoRef: checkoutPhoto,
-        ...scannerLocation
-      });
-
-      if (checkoutResult.success) {
-        setScanResult({ ...checkoutResult, member, participantType: 'INTERNAL', isCheckout: true });
-        try { confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } }); } catch (e) { }
-      } else {
-        setScanError(checkoutResult.message || 'Gagal menyimpan Check-out.');
-        recoverScan();
-      }
-      setIsProcessing(false);
-      return;
-    }
-
-    // Proses Check-In Anggota
-    let checkinPhoto = null;
-    try {
-      checkinPhoto = documentationPhoto
-        ? await saveAttendancePhoto({
-          dataUrl: documentationPhoto,
-          activityId: activityForScan.id,
-          participantId: member.id,
-          eventType: 'CHECK_IN',
-          logId: `ATT-${activityForScan.id}-${member.id}`
-        })
-        : null;
-    } catch (error) { }
-
-    const result = await ctxRecordAttendance({
-      activityId: activityForScan.id,
-      memberId: member.id,
-      method: activityForScan.gpsRequired ? 'GPS_ONLINE' : 'QR_WEBCAM',
-      operatorName: 'Petugas Laptop Webcam Scanner',
-      ignoreDeviceLock: true,
+    // Alur Absensi oleh Petugas dengan Sesi Foto Fisik Anggota Dewan
+    // Jangan snapshot instan agar foto tidak berisi gambar kartu QR yang di-scan!
+    setPendingMemberScan({
+      member,
+      activityForScan,
       invitationToken,
-      documentationPhotoRef: checkinPhoto,
-      ...scannerLocation
+      scannerLocation,
+      capturedPhoto: null // Kamera akan menampilkan live video webcam agar petugas mengambil foto anggota fisik
     });
-
-    if (result.success) {
-      setScanResult({ ...result, member, participantType: 'INTERNAL' });
-      setScanError('');
-      try { confetti({ particleCount: 85, spread: 75, origin: { y: 0.6 } }); } catch (e) { }
-    } else {
-      setScanError(result.message || 'Gagal menyimpan absensi ke database.');
-      recoverScan();
-    }
     setIsProcessing(false);
   }, []);
 
@@ -764,6 +691,121 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
     };
   }, [isOpen, targetActivityId, startCamera, stopCamera]);
 
+  // Handler untuk menyimpan absensi anggota setelah foto diambil oleh webcam laptop
+  const handleConfirmMemberAttendance = async (photoOverride = null) => {
+    if (!pendingMemberScan) return;
+    const { member, activityForScan, invitationToken, scannerLocation, capturedPhoto } = pendingMemberScan;
+    const finalPhoto = photoOverride || capturedPhoto || (videoRef.current ? captureFrameFromVideo(videoRef.current) : null);
+
+    setIsSubmittingPhoto(true);
+
+    const { logs: ctxLogs, recordAttendance: ctxRecordAttendance, checkoutAttendance: ctxCheckoutAttendance } = contextDataRef.current;
+
+    // Cek apakah sudah ada log kehadiran
+    const existingAttendance = ctxLogs.find(log =>
+      log.activityId === activityForScan.id &&
+      log.memberId === member.id &&
+      log.participantType !== 'EXTERNAL'
+    );
+
+    // Proses Check-Out Anggota
+    if (existingAttendance) {
+      if (existingAttendance.checkOutAt) {
+        setScanError(`${member.name} sudah melakukan Check-out pada agenda ini.`);
+        setPendingMemberScan(null);
+        setIsSubmittingPhoto(false);
+        hasDetectedRef.current = false;
+        isScanningRef.current = true;
+        return;
+      }
+      
+      let checkoutPhoto = null;
+      try {
+        checkoutPhoto = finalPhoto
+          ? await saveAttendancePhoto({
+            dataUrl: finalPhoto,
+            activityId: activityForScan.id,
+            participantId: member.id,
+            eventType: 'CHECK_OUT',
+            logId: existingAttendance.id
+          })
+          : null;
+      } catch (error) { }
+
+      const checkoutResult = await ctxCheckoutAttendance({
+        activityId: activityForScan.id,
+        memberId: member.id,
+        method: activityForScan.gpsRequired ? 'GPS_ONLINE' : 'QR_WEBCAM',
+        operatorName: 'Petugas Laptop Webcam Scanner',
+        documentationPhotoRef: checkoutPhoto,
+        ...scannerLocation
+      });
+
+      setIsSubmittingPhoto(false);
+      setPendingMemberScan(null);
+
+      if (checkoutResult.success) {
+        setScanResult({ ...checkoutResult, member, participantType: 'INTERNAL', isCheckout: true, photoUrl: finalPhoto });
+        try { confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } }); } catch (e) { }
+      } else {
+        setScanError(checkoutResult.message || 'Gagal menyimpan Check-out.');
+        hasDetectedRef.current = false;
+        isScanningRef.current = true;
+      }
+      return;
+    }
+
+    // Proses Check-In Anggota
+    let checkinPhoto = null;
+    try {
+      checkinPhoto = finalPhoto
+        ? await saveAttendancePhoto({
+          dataUrl: finalPhoto,
+          activityId: activityForScan.id,
+          participantId: member.id,
+          eventType: 'CHECK_IN',
+          logId: `ATT-${activityForScan.id}-${member.id}`
+        })
+        : null;
+    } catch (error) { }
+
+    const result = await ctxRecordAttendance({
+      activityId: activityForScan.id,
+      memberId: member.id,
+      method: activityForScan.gpsRequired ? 'GPS_ONLINE' : 'QR_WEBCAM',
+      operatorName: 'Petugas Laptop Webcam Scanner',
+      ignoreDeviceLock: true,
+      invitationToken,
+      documentationPhotoRef: checkinPhoto,
+      ...scannerLocation
+    });
+
+    setIsSubmittingPhoto(false);
+    setPendingMemberScan(null);
+
+    if (result.success) {
+      setScanResult({ ...result, member, participantType: 'INTERNAL', photoUrl: finalPhoto });
+      setScanError('');
+      try { confetti({ particleCount: 85, spread: 75, origin: { y: 0.6 } }); } catch (e) { }
+    } else {
+      setScanError(result.message || 'Gagal menyimpan absensi ke database.');
+      hasDetectedRef.current = false;
+      isScanningRef.current = true;
+    }
+  };
+
+  const handleRetakeMemberPhoto = () => {
+    if (!pendingMemberScan) return;
+    const newPhoto = videoRef.current ? captureFrameFromVideo(videoRef.current) : null;
+    setPendingMemberScan(prev => prev ? { ...prev, capturedPhoto: newPhoto } : null);
+  };
+
+  const handleCancelPendingMember = () => {
+    setPendingMemberScan(null);
+    hasDetectedRef.current = false;
+    isScanningRef.current = true;
+  };
+
   const handleDeviceChange = async (e) => {
     const newDeviceId = e.target.value;
     setSelectedDeviceId(newDeviceId);
@@ -772,6 +814,7 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
 
   const handleScanNext = async () => {
     setScanResult(null);
+    setPendingMemberScan(null);
     setScanError('');
     hasDetectedRef.current = false;
     setIsProcessing(false);
@@ -848,8 +891,116 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
           </div>
         )}
 
-        {/* ── KONTEN UTAMA: SCANNER vs HASIL ── */}
-        {!scanResult ? (
+        {/* ── KONTEN UTAMA: SCANNER vs PENDING PHOTO CONFIRMATION vs HASIL ── */}
+        {pendingMemberScan ? (
+          /* ── SESI KONFIRMASI FOTO ANGGOTA OLEH PETUGAS ── */
+          <div className="space-y-4 my-2 p-4 rounded-3xl bg-slate-950/90 border border-emerald-500/50 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center space-x-3">
+                {pendingMemberScan.member.photo ? (
+                  <img src={pendingMemberScan.member.photo} alt="" className="w-10 h-10 rounded-full object-cover border border-emerald-500 shrink-0" />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-slate-800 border border-emerald-500 flex items-center justify-center font-bold text-emerald-400 shrink-0">
+                    {pendingMemberScan.member.name?.charAt(0)}
+                  </div>
+                )}
+                <div>
+                  <h4 className="font-extrabold text-sm sm:text-base text-white">{pendingMemberScan.member.name}</h4>
+                  <p className="text-[11px] text-emerald-400 font-medium">{pendingMemberScan.member.fraksi} • {pendingMemberScan.member.komisi || pendingMemberScan.member.jabatan || 'Internal'}</p>
+                </div>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] font-bold uppercase">
+                QR Terbaca
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                  <Camera className="w-4 h-4 text-emerald-400" />
+                  <span>Foto Bukti Kehadiran Anggota Dewan</span>
+                </span>
+                <span className="text-[10px] text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-800">
+                  Ambil Foto Anggota
+                </span>
+              </div>
+
+              {/* Box Preview Hasil Foto / Live Webcam Frame */}
+              <div className="relative aspect-video w-full bg-black rounded-2xl overflow-hidden border-2 border-emerald-500/60 flex items-center justify-center shadow-inner">
+                {pendingMemberScan.capturedPhoto ? (
+                  <img src={pendingMemberScan.capturedPhoto} alt="Foto Anggota Dewan" className="w-full h-full object-cover" />
+                ) : (
+                  <video
+                    ref={(el) => {
+                      videoRef.current = el;
+                      if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                        el.srcObject = streamRef.current;
+                        el.play().catch(() => {});
+                      }
+                    }}
+                    playsInline
+                    muted
+                    autoPlay
+                    className="w-full h-full object-cover"
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Tombol Aksi Foto */}
+            <div className="pt-2 flex flex-col sm:flex-row gap-2">
+              {!pendingMemberScan.capturedPhoto ? (
+                <button
+                  type="button"
+                  onClick={handleRetakeMemberPhoto}
+                  disabled={isSubmittingPhoto}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition disabled:opacity-50"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Jepret Foto Anggota</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setPendingMemberScan(prev => prev ? { ...prev, capturedPhoto: null } : null)}
+                    disabled={isSubmittingPhoto}
+                    className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition disabled:opacity-50"
+                  >
+                    <RefreshCw className="w-4 h-4 text-amber-400" />
+                    <span>Foto Ulang</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmMemberAttendance()}
+                    disabled={isSubmittingPhoto}
+                    className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition disabled:opacity-50"
+                  >
+                    {isSubmittingPhoto ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>Menyimpan Absensi...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Simpan Absensi & Foto</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={handleCancelPendingMember}
+                disabled={isSubmittingPhoto}
+                className="px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-400 rounded-xl font-bold text-xs border border-slate-800 transition"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        ) : !scanResult ? (
           <div className="space-y-3.5 flex-1 flex flex-col">
 
             {/* Error / Permission Denied Box */}
@@ -877,7 +1028,13 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
               <div className="relative rounded-2xl border-2 border-cyan-500/40 bg-slate-950 overflow-hidden shadow-inner aspect-video flex items-center justify-center">
                 {/* Elemen Video Native React */}
                 <video
-                  ref={videoRef}
+                  ref={(el) => {
+                    videoRef.current = el;
+                    if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                      el.srcObject = streamRef.current;
+                      el.play().catch(() => {});
+                    }
+                  }}
                   playsInline
                   muted
                   autoPlay
@@ -1025,7 +1182,13 @@ export default function QRScannerModal({ isOpen, onClose, selectedActivityId, ac
 
             {/* Kartu Profil Anggota / Peserta */}
             <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-left flex items-start space-x-4">
-              {scanResult.member?.photo ? (
+              {scanResult.photoUrl ? (
+                <img
+                  src={scanResult.photoUrl}
+                  alt={scanResult.member?.name || 'Foto Absen'}
+                  className="w-20 h-24 rounded-2xl object-cover border-2 border-emerald-500 shadow-md shrink-0"
+                />
+              ) : scanResult.member?.photo ? (
                 <img
                   src={scanResult.member.photo}
                   alt={scanResult.member.name}
