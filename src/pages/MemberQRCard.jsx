@@ -54,11 +54,11 @@ function DigitalMemberCard({ member }) {
           </dl>
         </div>
 
-        <div className="flex w-[82px] shrink-0 flex-col items-center justify-center">
-          <div className="rounded border border-slate-300 bg-white p-1">
-            <QRCodeSVG value={memberQrValue(member)} size={72} level="M" includeMargin />
+        <div className="flex w-[110px] shrink-0 flex-col items-center justify-center">
+          <div className="rounded-lg border-2 border-slate-300 bg-white p-1 shadow-sm">
+            <QRCodeSVG value={memberQrValue(member)} size={98} level="Q" includeMargin />
           </div>
-          <p className="mt-1 text-center text-[7px] font-bold uppercase leading-tight text-emerald-900">QR Anggota<br />Absensi & Verifikasi</p>
+          <p className="mt-1 text-center text-[7.5px] font-extrabold uppercase leading-tight text-emerald-900">QR Anggota<br />Absensi & Verifikasi</p>
         </div>
       </div>
 

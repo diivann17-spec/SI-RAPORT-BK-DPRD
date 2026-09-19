@@ -192,13 +192,46 @@ export const AKD_BADGE_COLORS = {
   'Kunjungan Kerja': 'bg-rose-950 text-rose-300 border-rose-800',
 };
 
+export function getCanonicalAKDKey(value) {
+  if (!value) return '';
+  const str = String(value).toLowerCase().trim();
+  
+  if (/komisi\s*(1|i\b)/i.test(str) && !/komisi\s*(2|ii|3|iii|4|iv)/i.test(str)) return 'KOMISI_1';
+  if (/komisi\s*(2|ii\b)/i.test(str)) return 'KOMISI_2';
+  if (/komisi\s*(3|iii\b)/i.test(str)) return 'KOMISI_3';
+  if (/komisi\s*(4|iv\b)/i.test(str)) return 'KOMISI_4';
+
+  if (/banggar|badan\s+anggaran/i.test(str)) return 'BANGGAR';
+  if (/banmus|badan\s+musyawarah/i.test(str)) return 'BANMUS';
+  if (/bapemperda|badan\s+pembentukan\s+peraturan/i.test(str)) return 'BAPEMPERDA';
+  if (/\bbk\b|badan\s+kehormatan/i.test(str)) return 'BK';
+
+  if (/pansus\s*(1|i\b)|panitia\s+khusus\s*(1|i\b)/i.test(str)) return 'PANSUS_1';
+  if (/pansus\s*(2|ii\b)|panitia\s+khusus\s*(2|ii\b)/i.test(str)) return 'PANSUS_2';
+  if (/pansus\s*(3|iii\b)|panitia\s+khusus\s*(3|iii\b)/i.test(str)) return 'PANSUS_3';
+  if (/pansus\s*(4|iv\b)|panitia\s+khusus\s*(4|iv\b)/i.test(str)) return 'PANSUS_4';
+
+  if (/pimpinan/i.test(str)) return 'PIMPINAN';
+  if (/paripurna/i.test(str)) return 'PARIPURNA';
+
+  return str;
+}
+
 export function getMemberAKDs(member) {
   const memberships = [
     ...(Array.isArray(member?.akdMemberships) ? member.akdMemberships : []),
     member?.komisi
   ].filter(Boolean).map(String);
 
-  return [...new Map(memberships.map(value => [value.toLowerCase().trim(), value])).values()];
+  const map = new Map();
+  memberships.forEach(item => {
+    const key = getCanonicalAKDKey(item) || item.toLowerCase().trim();
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  });
+
+  return [...map.values()];
 }
 
 export function memberHasAKD(member, category) {
@@ -206,24 +239,64 @@ export function memberHasAKD(member, category) {
 }
 
 /**
- * Mencocokkan apakah kategori agenda sesuai dengan filter AKD
+ * Mencocokkan apakah kategori string sesuai dengan filter AKD
  */
 export function matchAKDCategory(activityCategory, filterKey) {
   if (!filterKey || filterKey === 'ALL') return true;
   if (!activityCategory) return false;
   
-  const normalize = value => String(value).toLowerCase().trim()
-    .replace(/pansus\s+i\b/g, 'pansus 1')
-    .replace(/pansus\s+ii\b/g, 'pansus 2')
-    .replace(/pansus\s+iii\b/g, 'pansus 3')
-    .replace(/pansus\s+iv\b/g, 'pansus 4');
-  const normAct = normalize(activityCategory);
-  const normFilter = normalize(filterKey);
-
-  // Prevent prefix matches such as "Komisi I" matching "Komisi II".
-  if (/^komisi\s+[ivx1-4]+$/.test(normAct) || /^komisi\s+[ivx1-4]+$/.test(normFilter)) {
-    return normAct === normFilter;
-  }
+  const key1 = getCanonicalAKDKey(activityCategory);
+  const key2 = getCanonicalAKDKey(filterKey);
   
-  return normAct === normFilter || normAct.includes(normFilter) || normFilter.includes(normAct);
+  if (key1 && key2 && key1 === key2) return true;
+  
+  const str1 = String(activityCategory).toLowerCase().trim();
+  const str2 = String(filterKey).toLowerCase().trim();
+  return str1 === str2 || str1.includes(str2) || str2.includes(str1);
 }
+
+/**
+ * Mendapatkan Canonical AKD Key dari sebuah objek agenda/kegiatan
+ */
+export function getActivityAKDKey(activity) {
+  if (!activity) return '';
+  const fields = [
+    activity.category,
+    activity.akdOrganizer,
+    activity.akd,
+    activity.organizer,
+    activity.title
+  ].filter(Boolean);
+
+  for (const text of fields) {
+    const key = getCanonicalAKDKey(text);
+    if (key && ['KOMISI_1', 'KOMISI_2', 'KOMISI_3', 'KOMISI_4', 'BANGGAR', 'BANMUS', 'BAPEMPERDA', 'BK', 'PANSUS_1', 'PANSUS_2', 'PANSUS_3', 'PANSUS_4', 'PIMPINAN', 'PARIPURNA'].includes(key)) {
+      return key;
+    }
+  }
+
+  if (activity.category) return getCanonicalAKDKey(activity.category);
+  return '';
+}
+
+/**
+ * Mencocokkan apakah sebuah kegiatan/agenda sesuai dengan filter AKD
+ */
+export function matchActivityToAKD(activity, filterKey) {
+  if (!filterKey || filterKey === 'ALL') return true;
+  if (!activity) return false;
+
+  const filterCanonical = getCanonicalAKDKey(filterKey);
+  const actCanonical = getActivityAKDKey(activity);
+
+  if (filterCanonical && actCanonical && filterCanonical === actCanonical) {
+    return true;
+  }
+
+  return matchAKDCategory(activity.category, filterKey) ||
+    matchAKDCategory(activity.akdOrganizer, filterKey) ||
+    matchAKDCategory(activity.akd, filterKey) ||
+    matchAKDCategory(activity.organizer, filterKey) ||
+    matchAKDCategory(activity.title, filterKey);
+}
+

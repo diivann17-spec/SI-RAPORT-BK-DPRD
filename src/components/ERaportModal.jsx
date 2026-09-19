@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
-import { getStatusBadge, getMethodBadge, formatCheckInWithStatus } from '../utils/raportUtils';
+import { getStatusBadge, getMethodBadge, getSourceBadge, formatCheckInWithStatus } from '../utils/raportUtils';
 import { getMemberAKDs, matchAKDCategory } from '../utils/akdUtils';
 import dprdLogo from '../logo.png';
 import {
@@ -45,11 +45,10 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
   const memberLogs = logs.filter(l => l.memberId === memberId && l.participantType !== 'EXTERNAL');
 
   const filteredActivities = activities.filter(act => {
-    if (selectedMaxMonth === 'ALL') return true;
-    if (!act.date) return true;
-    const m = new Date(act.date).getMonth() + 1;
-    return m <= parseInt(selectedMaxMonth, 10);
-  }).filter(act => {
+    if (selectedMaxMonth !== 'ALL' && act.date) {
+      const m = new Date(act.date).getMonth() + 1;
+      if (m > parseInt(selectedMaxMonth, 10)) return false;
+    }
     const activityLog = memberLogs.find(log => (log.activityId || log.agendaId) === act.id);
     const isMandatoryParticipant = Array.isArray(act.participantMemberIds) &&
       act.participantMemberIds.includes(memberId) &&
@@ -59,8 +58,7 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
       (!activityLog.participantStatus || activityLog.participantStatus === 'WAJIB_HADIR');
     if (!isMandatoryParticipant && !isCountableLog) return false;
     if (act.participantStatuses?.[memberId] && act.participantStatuses[memberId] !== 'WAJIB_HADIR') return false;
-    if (reportType === 'AVERAGE') return true;
-    return !act.category || /paripurna/i.test(act.category) || memberAKDs.some(akd => matchAKDCategory(akd, act.category));
+    return true;
   });
 
   const visibleCategories = reportType === 'AVERAGE'
@@ -196,14 +194,39 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
 
             {/* Raport Score & Color Category Indicator */}
             <div className={`p-4 rounded-xl text-center flex flex-col justify-center border ${raport.categoryInfo.badgeClass}`}>
-              <span className="text-xs font-extrabold uppercase tracking-wider">Persentase Kehadiran</span>
+              <span className="text-xs font-extrabold uppercase tracking-wider">Persentase Keseluruhan</span>
               <div className="text-4xl font-black my-1">
-                {raport.percentage === null ? '—' : `${raport.percentage}%`}
+                {raport.percentage === null ? 'Belum ada data' : `${raport.percentage}%`}
               </div>
               <div className="text-xs font-bold uppercase tracking-wide">
-                KATEGORI: {raport.categoryInfo.label}
+                KATEGORI: {raport.totalMandatory === 0 ? 'Belum ada data' : raport.categoryInfo.label}
               </div>
               <p className="text-[11px] mt-1 opacity-90">{raport.categoryInfo.statusText}</p>
+            </div>
+
+            {/* Quick Per-AKD Summary Chips */}
+            <div className="md:col-span-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+              <p className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider mb-2">Persentase Kehadiran Per AKD:</p>
+              <div className="flex flex-wrap gap-2">
+                {visibleCategories.map(cat => {
+                  const catRaport = reportType === 'AVERAGE'
+                    ? raport
+                    : getMemberRaport(memberId, cat, selectedMaxMonth);
+                  const isNoData = catRaport.totalMandatory === 0 || catRaport.percentage === null;
+                  return (
+                    <div key={cat} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                      <span className="font-bold text-slate-800">{cat}:</span>
+                      {isNoData ? (
+                        <span className="font-semibold text-slate-500 italic">Belum ada data</span>
+                      ) : (
+                        <span className={`font-black ${catRaport.categoryInfo.textColor}`}>
+                          {catRaport.percentage}% ({catRaport.categoryInfo.key})
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
           </div>
@@ -221,9 +244,10 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
               <table className="w-full text-[11px] text-left text-slate-700">
                 <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-200">
                   <tr>
-                    <th className="p-2">Jenis Kegiatan</th>
+                    <th className="p-2">Jenis Kegiatan / AKD</th>
                     <th className="p-2 text-center">Wajib Diikuti</th>
-                    <th className="p-2 text-center">Hadir / Dinas</th>
+                    <th className="p-2 text-center">Hadir</th>
+                    <th className="p-2 text-center">Dinas Luar</th>
                     <th className="p-2 text-center">Terlambat</th>
                     <th className="p-2 text-center">Izin / Sakit</th>
                     <th className="p-2 text-center">Tanpa Ket.</th>
@@ -236,19 +260,29 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
                     const catRaport = reportType === 'AVERAGE'
                       ? raport
                       : getMemberRaport(memberId, cat, selectedMaxMonth);
+                    const isNoData = catRaport.totalMandatory === 0 || catRaport.percentage === null;
                     return (
                       <tr key={cat} className="hover:bg-slate-50">
                         <td className="p-2 font-semibold text-slate-900">{cat}</td>
                         <td className="p-2 text-center font-mono">{catRaport.totalMandatory}</td>
-                        <td className="p-2 text-center text-emerald-700 font-bold">{catRaport.breakdown.hadir + catRaport.breakdown.dinas}</td>
+                        <td className="p-2 text-center text-emerald-700 font-bold">{catRaport.breakdown.hadir}</td>
+                        <td className="p-2 text-center text-indigo-700 font-bold">{catRaport.breakdown.dinas}</td>
                         <td className="p-2 text-center text-amber-700 font-bold">{catRaport.breakdown.terlambat}</td>
                         <td className="p-2 text-center text-blue-700 font-bold">{catRaport.breakdown.izin + catRaport.breakdown.sakit}</td>
                         <td className="p-2 text-center text-rose-700 font-bold">{catRaport.breakdown.alpa}</td>
-                        <td className="p-2 text-right font-bold text-slate-900 font-mono">{catRaport.percentage === null ? '—' : `${catRaport.percentage}%`}</td>
+                        <td className="p-2 text-right font-bold text-slate-900 font-mono">
+                          {isNoData ? <span className="text-slate-400 font-normal italic">Belum ada data</span> : `${catRaport.percentage}%`}
+                        </td>
                         <td className="p-2 text-center">
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${catRaport.categoryInfo.badgeClass}`}>
-                            {catRaport.categoryInfo.key}
-                          </span>
+                          {isNoData ? (
+                            <span className="px-2 py-0.5 rounded text-[9px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                              Belum ada data
+                            </span>
+                          ) : (
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${catRaport.categoryInfo.badgeClass}`}>
+                              {catRaport.categoryInfo.key}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -270,36 +304,45 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
                   <tr>
                     <th className="p-2 font-semibold">Tanggal & Waktu</th>
                     <th className="p-2 font-semibold">Nama Agenda Rapat</th>
+                    <th className="p-2 font-semibold">AKD</th>
                     <th className="p-2 font-semibold text-center">Status</th>
-                    <th className="p-2 font-semibold text-center">Metode Absensi</th>
+                    <th className="p-2 font-semibold text-center">Sumber</th>
                     <th className="p-2 font-semibold">Keterangan / Catatan</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {filteredActivities.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-3 text-center text-slate-400 italic">
+                      <td colSpan={6} className="p-3 text-center text-slate-400 italic">
                         Tidak ada agenda rapat pada periode yang dipilih.
                       </td>
                     </tr>
                   ) : (
                     filteredActivities.map(act => {
-                      const log = memberLogs.find(l => l.activityId === act.id);
+                      const log = memberLogs.find(l => (l.activityId || l.agendaId) === act.id);
                       const statusBadge = getStatusBadge(log ? log.status : 'Tanpa Keterangan');
-                      const methodBadge = getMethodBadge(log ? log.method : 'SYSTEM');
+                      const sourceBadge = log ? getSourceBadge(log) : { key: 'NONE', label: 'Tanpa Presensi', icon: '⚪', badgeClass: 'bg-slate-100 text-slate-500 border-slate-200' };
+                      const actAKD = act.akd || act.category || member.komisi || 'Komisi';
                       return (
                         <tr key={act.id} className="hover:bg-slate-50">
                           <td className="p-2 font-mono text-[10px] whitespace-nowrap">
                             {act.date} {log ? formatCheckInWithStatus(log) : '-'}
                           </td>
                           <td className="p-2 font-medium">{act.title}</td>
+                          <td className="p-2 whitespace-nowrap">
+                            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                              {actAKD}
+                            </span>
+                          </td>
                           <td className="p-2 text-center whitespace-nowrap">
                             <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${statusBadge.bg}`}>
                               {statusBadge.label}
                             </span>
                           </td>
-                          <td className="p-2 text-center text-[10px] whitespace-nowrap">
-                            {log ? `${methodBadge.icon} ${methodBadge.label}` : 'Tanpa Presensi'}
+                          <td className="p-2 text-center whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold border ${sourceBadge.badgeClass}`}>
+                              {sourceBadge.icon} {sourceBadge.label}
+                            </span>
                           </td>
                           <td className="p-2 text-slate-500 text-[10px] truncate max-w-[180px]">
                             {log?.note || 'Tidak melakukan presensi rapat'}

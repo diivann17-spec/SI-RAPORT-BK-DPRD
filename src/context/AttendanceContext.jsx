@@ -8,7 +8,7 @@ import { db } from '../firebase/config';
 import { getRaportCategory, getDisciplineGrade, calculateAttendanceStatus } from '../utils/raportUtils';
 import { getDeviceFingerprint, validateDeviceSingleAttendance } from '../utils/deviceUtils';
 import { DEFAULT_ROOMS, findRoomConflict } from '../utils/roomUtils';
-import { matchAKDCategory, memberHasAKD } from '../utils/akdUtils';
+import { matchAKDCategory, memberHasAKD, matchActivityToAKD, getCanonicalAKDKey, getActivityAKDKey } from '../utils/akdUtils';
 import { authService } from '../firebase/authService';
 import { createAccount, updateAccount, ACCOUNT_ROLES, ACCOUNT_STATUS } from '../firebase/accountService';
 import { removeAttendancePhoto as removeLocalAttendancePhoto } from '../utils/attendancePhotoStore';
@@ -774,20 +774,27 @@ export function AttendanceProvider({ children }) {
         if (log?.includedInRaport === false) return false;
       }
       
-      // Agenda lama tanpa kategori tetap masuk raport keseluruhan bila peserta
-      // wajib/log valid, tetapi tidak dapat dipetakan ke raport AKD tertentu.
-      if (!activity.category) return categoryFilter === 'ALL';
-      const activityIsParipurna = isParipurna(activity.category);
-      const matchesSelectedCategory = categoryFilter === 'ALL' || matchAKDCategory(activity.category, categoryFilter);
-      return matchesSelectedCategory && (
-        categoryFilter === 'ALL'
-          ? isMandatoryParticipant || isCountableLog || activityIsParipurna || matchesMemberAKD(activity.category)
-          : (activityIsParipurna || matchesMemberAKD(activity.category))
-      );
+      // Filter kategori AKD / Paripurna / ALL
+      if (categoryFilter === 'ALL') return true;
+
+      // Cek apakah agenda cocok dengan kategori AKD yang dipilih (via category, akdOrganizer, akd, organizer, title)
+      if (matchActivityToAKD(activity, categoryFilter)) return true;
+
+      // Jika kategori filter adalah Paripurna, cek juga jika judul mengandung kata paripurna
+      if (isParipurna(categoryFilter) && (isParipurna(activity.category) || isParipurna(activity.title))) return true;
+
+      // Jika agenda tidak memiliki penanda AKD eksplisit (misal agenda rapat komisi biasa tanpa teks spesifik),
+      // dan anggota memiliki AKD yang sedang difilter, cocokkan bila anggota menjadi peserta wajib di agenda tersebut
+      const actAKDKey = getActivityAKDKey(activity);
+      if (!actAKDKey && member && (categoryFilter === member.komisi || matchAKDCategory(member.komisi, categoryFilter))) {
+        return true;
+      }
+
+      return false;
     });
 
-      if (activityFilter !== 'ALL') relevantActivities = relevantActivities.filter(activity => activity.id === activityFilter);
-      if (yearFilter !== 'ALL') relevantActivities = relevantActivities.filter(activity => String(activity.date || '').slice(0, 4) === String(yearFilter));
+    if (activityFilter !== 'ALL') relevantActivities = relevantActivities.filter(activity => activity.id === activityFilter);
+    if (yearFilter !== 'ALL') relevantActivities = relevantActivities.filter(activity => String(activity.date || '').slice(0, 4) === String(yearFilter));
 
     if (maxMonth !== null && maxMonth !== undefined && maxMonth !== 'ALL') {
       const monthNum = parseInt(maxMonth, 10);
@@ -842,6 +849,17 @@ export function AttendanceProvider({ children }) {
       breakdown: { hadir, tepatWaktu, terlambat, terlambatBerat, dinas, izin, sakit, alpa }
     };
   }, [logs, activities, scoreSettings, getMemberById]);
+
+  const getMemberAKDRaports = useCallback((memberId, maxMonth = null, activityFilter = 'ALL', yearFilter = 'ALL') => {
+    const member = getMemberById(memberId);
+    if (!member) return [];
+    const akdCategories = [...getMemberAKDs(member), 'Rapat Paripurna']
+      .filter((cat, idx, self) => self.findIndex(v => matchAKDCategory(v, cat)) === idx);
+    return akdCategories.map(akd => ({
+      akd,
+      raport: getMemberRaport(memberId, akd, maxMonth, activityFilter, yearFilter)
+    }));
+  }, [getMemberById, getMemberRaport]);
 
   // ─── Record Attendance Internal (Anggota DPRD) dengan Validasi Multi-Faktor ──
   const recordAttendance = async ({
@@ -2001,6 +2019,509 @@ export function AttendanceProvider({ children }) {
     }
   };
 
+  // ─── Input Absensi Manual Lama (Single Record Migration) ───────────────────
+  const recordLegacyAttendance = async ({
+    date,
+    title,
+    akd = '',
+    category = '',
+    activityId = null,
+    memberId,
+    status = 'Hadir',
+    checkInTime = '09:00',
+    checkOutTime = null,
+    note = '',
+    operatorName = null
+  }) => {
+    try {
+      if (!['SECRETARIAT_ADMIN', 'PETUGAS_BK'].includes(currentRole)) {
+        return { success: false, message: 'Hanya Admin Sekretariat atau Petugas BK yang dapat melakukan input absensi manual lama.' };
+      }
+      const member = getParticipantById(memberId);
+      if (!member) return { success: false, message: 'Data anggota DPRD tidak ditemukan.' };
+      if (!date) return { success: false, message: 'Tanggal kegiatan wajib diisi.' };
+      if (!title && !activityId) return { success: false, message: 'Nama agenda kegiatan wajib diisi.' };
+
+      let targetActivity = activities.find(a => a.id === activityId);
+
+      // Jika targetActivity belum ada, cari berdasarkan tanggal & judul
+      if (!targetActivity) {
+        targetActivity = activities.find(a =>
+          a.date === date &&
+          a.title?.trim().toLowerCase() === title?.trim().toLowerCase()
+        );
+      }
+
+      // Jika belum ditemukan di database, buat agenda kegiatan lama baru secara otomatis
+      if (!targetActivity) {
+        const generatedActId = `ACT-LEGACY-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const resolvedAKD = akd || category || member.komisi || 'Komisi I';
+        const isParipurna = /paripurna/i.test(resolvedAKD) || /paripurna/i.test(title || '');
+
+        targetActivity = {
+          id: generatedActId,
+          title: (title || 'Rapat Kegiatan DPRD').trim(),
+          date,
+          startTime: checkInTime || '08:00',
+          endTime: checkOutTime || '12:00',
+          toleranceMinutes: 30,
+          category: isParipurna ? 'Rapat Paripurna' : (category || resolvedAKD || 'Rapat Kerja'),
+          akd: resolvedAKD,
+          akdOrganizer: resolvedAKD,
+          organizer: resolvedAKD,
+          roomId: null,
+          roomName: 'Ruang Rapat DPRD (Arsip Manual)',
+          locationName: 'Ruang Rapat DPRD (Arsip Manual)',
+          qrToken: `LEGACY-${generatedActId}`,
+          attendanceMethods: ['MANUAL_LEGACY'],
+          participantMemberIds: [memberId],
+          participantTypes: { [memberId]: 'MEMBER' },
+          participantStatuses: { [memberId]: 'WAJIB_HADIR' },
+          status: 'COMPLETED',
+          isLegacy: true,
+          notes: 'Agenda historis migrasi absensi manual lama',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        setActivities(prev => [targetActivity, ...prev]);
+        try {
+          await setDoc(doc(db, COL.ACTIVITIES, generatedActId), {
+            ...targetActivity,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        } catch (e) {
+          console.warn('Firestore write legacy activity warning:', e);
+        }
+      } else {
+        // Jika agenda sudah ada, pastikan member terdaftar sebagai peserta WAJIB_HADIR
+        const currentParticipants = Array.isArray(targetActivity.participantMemberIds) ? targetActivity.participantMemberIds : [];
+        if (!currentParticipants.includes(memberId)) {
+          const updatedParticipantIds = [...currentParticipants, memberId];
+          const updatedStatuses = { ...(targetActivity.participantStatuses || {}), [memberId]: 'WAJIB_HADIR' };
+          const updatedTypes = { ...(targetActivity.participantTypes || {}), [memberId]: 'MEMBER' };
+
+          targetActivity = {
+            ...targetActivity,
+            participantMemberIds: updatedParticipantIds,
+            participantStatuses: updatedStatuses,
+            participantTypes: updatedTypes,
+          };
+
+          setActivities(prev => prev.map(a => a.id === targetActivity.id ? targetActivity : a));
+          try {
+            await updateDoc(doc(db, COL.ACTIVITIES, targetActivity.id), {
+              participantMemberIds: updatedParticipantIds,
+              participantStatuses: updatedStatuses,
+              participantTypes: updatedTypes,
+              updatedAt: serverTimestamp(),
+            });
+          } catch (e) {
+            console.warn('Firestore update legacy participants warning:', e);
+          }
+        }
+      }
+
+      // Format timestamp ISO
+      let checkInAt = `${date}T${checkInTime || '09:00'}:00`;
+      try {
+        const d = new Date(checkInAt);
+        if (isNaN(d.getTime())) checkInAt = new Date().toISOString();
+        else checkInAt = d.toISOString();
+      } catch (e) {
+        checkInAt = new Date().toISOString();
+      }
+
+      let checkOutAt = null;
+      if (checkOutTime) {
+        try {
+          const dOut = new Date(`${date}T${checkOutTime}:00`);
+          if (!isNaN(dOut.getTime())) checkOutAt = dOut.toISOString();
+        } catch (e) {}
+      }
+
+      const logDocId = getAttendanceDocumentId(targetActivity.id, memberId);
+      const newLog = {
+        id: logDocId,
+        attendanceId: logDocId,
+        activityId: targetActivity.id,
+        agendaId: targetActivity.id,
+        roomId: targetActivity.roomId || null,
+        roomName: targetActivity.roomName || 'Ruang Rapat DPRD',
+        participantType: 'INTERNAL',
+        attendanceType: 'ANGGOTA',
+        participantCategory: 'ANGGOTA DPRD',
+        participantStatus: 'WAJIB_HADIR',
+        includedInRaport: true,
+        memberId,
+        participantId: memberId,
+        memberName: member.name,
+        memberFraksi: member.fraksi || '',
+        memberKomisi: member.komisi || '',
+        memberAKD: member.akdMemberships || [member.komisi || ''],
+        timestamp: checkInAt,
+        checkInAt,
+        checkOutAt,
+        durationMinutes: checkOutAt ? Math.round((new Date(checkOutAt) - new Date(checkInAt)) / 60000) : 0,
+        checkoutStatus: checkOutAt ? 'Selesai/Normal' : 'Selesai Sesuai Jadwal',
+        status: status || 'Hadir',
+        method: 'MANUAL_LEGACY',
+        source: 'MANUAL_LEGACY',
+        isLegacy: true,
+        operatorName: operatorName || currentUser?.name || 'Petugas Sekretariat DPRD',
+        note: note || 'Migrasi Data Absensi Manual Lama',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      setLogs(prev => {
+        const filtered = prev.filter(l => !(l.activityId === targetActivity.id && l.memberId === memberId));
+        const nextLogs = [newLog, ...filtered];
+        try {
+          localStorage.setItem('siraport_logs', JSON.stringify(nextLogs));
+          const bc = new BroadcastChannel('siraport_sync_channel');
+          bc.postMessage({ type: 'LOGS_UPDATED', logs: nextLogs });
+          bc.close();
+        } catch (e) {}
+        return nextLogs;
+      });
+
+      try {
+        await setDoc(doc(db, COL.LOGS, logDocId), {
+          ...newLog,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } catch (e) {
+        console.warn('Firestore write legacy log warning:', e);
+      }
+
+      await logAudit({
+        action: 'LEGACY_ATTENDANCE_RECORDED',
+        details: `Input Absensi Manual Lama [${status}] untuk ${member.name} pada agenda "${targetActivity.title}" (${date}) via Manual Lama.`,
+        method: 'MANUAL_LEGACY'
+      });
+
+      return { success: true, log: newLog, activity: targetActivity };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  // ─── Import Batch Absensi Manual Lama dari Excel / CSV ───────────────────────
+  const batchImportLegacyAttendance = async (parsedRows = [], operatorName = null) => {
+    try {
+      if (!['SECRETARIAT_ADMIN', 'PETUGAS_BK'].includes(currentRole)) {
+        return { success: false, message: 'Hanya Admin Sekretariat atau Petugas BK yang dapat melakukan import migrasi absensi.' };
+      }
+      if (!Array.isArray(parsedRows) || parsedRows.length === 0) {
+        return { success: false, message: 'Tidak ada data yang diimport.' };
+      }
+
+      const createdActivitiesMap = new Map();
+      const newActivitiesList = [];
+      const newLogsList = [];
+      const currentActivities = [...activities];
+
+      for (const row of parsedRows) {
+        const { date, title, akd, category, memberId, status, checkInTime, checkOutTime, note } = row;
+        const cleanTitle = (title || 'Rapat Kegiatan DPRD').trim();
+        const actKey = `${date}___${cleanTitle.toLowerCase()}`;
+
+        let act = currentActivities.find(a =>
+          a.date === date && a.title?.trim().toLowerCase() === cleanTitle.toLowerCase()
+        ) || createdActivitiesMap.get(actKey);
+
+        if (!act) {
+          const generatedActId = `ACT-LEGACY-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          const resolvedAKD = akd || category || 'Komisi I';
+          const isParipurna = /paripurna/i.test(resolvedAKD) || /paripurna/i.test(cleanTitle);
+
+          act = {
+            id: generatedActId,
+            title: cleanTitle,
+            date,
+            startTime: checkInTime || '08:00',
+            endTime: checkOutTime || '12:00',
+            toleranceMinutes: 30,
+            category: isParipurna ? 'Rapat Paripurna' : (category || resolvedAKD || 'Rapat Kerja'),
+            akd: resolvedAKD,
+            akdOrganizer: resolvedAKD,
+            organizer: resolvedAKD,
+            roomId: null,
+            roomName: 'Ruang Rapat DPRD (Arsip Manual)',
+            locationName: 'Ruang Rapat DPRD (Arsip Manual)',
+            qrToken: `LEGACY-${generatedActId}`,
+            attendanceMethods: ['MANUAL_LEGACY'],
+            participantMemberIds: [memberId],
+            participantTypes: { [memberId]: 'MEMBER' },
+            participantStatuses: { [memberId]: 'WAJIB_HADIR' },
+            status: 'COMPLETED',
+            isLegacy: true,
+            notes: 'Agenda historis migrasi absensi manual lama',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          createdActivitiesMap.set(actKey, act);
+          newActivitiesList.push(act);
+          currentActivities.unshift(act);
+        } else {
+          if (!act.participantMemberIds.includes(memberId)) {
+            act.participantMemberIds = [...act.participantMemberIds, memberId];
+            act.participantStatuses = { ...(act.participantStatuses || {}), [memberId]: 'WAJIB_HADIR' };
+            act.participantTypes = { ...(act.participantTypes || {}), [memberId]: 'MEMBER' };
+          }
+        }
+
+        const member = getParticipantById(memberId);
+        if (!member) continue;
+
+        let checkInAt = `${date}T${checkInTime || '09:00'}:00`;
+        try {
+          const d = new Date(checkInAt);
+          if (isNaN(d.getTime())) checkInAt = new Date().toISOString();
+          else checkInAt = d.toISOString();
+        } catch (e) {
+          checkInAt = new Date().toISOString();
+        }
+
+        let checkOutAt = null;
+        if (checkOutTime) {
+          try {
+            const dOut = new Date(`${date}T${checkOutTime}:00`);
+            if (!isNaN(dOut.getTime())) checkOutAt = dOut.toISOString();
+          } catch (e) {}
+        }
+
+        const logDocId = getAttendanceDocumentId(act.id, memberId);
+        const logItem = {
+          id: logDocId,
+          attendanceId: logDocId,
+          activityId: act.id,
+          agendaId: act.id,
+          roomId: act.roomId || null,
+          roomName: act.roomName || 'Ruang Rapat DPRD',
+          participantType: 'INTERNAL',
+          attendanceType: 'ANGGOTA',
+          participantCategory: 'ANGGOTA DPRD',
+          participantStatus: 'WAJIB_HADIR',
+          includedInRaport: true,
+          memberId,
+          participantId: memberId,
+          memberName: member.name,
+          memberFraksi: member.fraksi || '',
+          memberKomisi: member.komisi || '',
+          memberAKD: member.akdMemberships || [member.komisi || ''],
+          timestamp: checkInAt,
+          checkInAt,
+          checkOutAt,
+          durationMinutes: checkOutAt ? Math.max(0, Math.round((new Date(checkOutAt) - new Date(checkInAt)) / 60000)) : 0,
+          checkoutStatus: checkOutAt ? 'Selesai/Normal' : 'Selesai Sesuai Jadwal',
+          status: status || 'Hadir',
+          method: 'MANUAL_LEGACY',
+          source: 'MANUAL_LEGACY',
+          isLegacy: true,
+          operatorName: operatorName || currentUser?.name || 'Petugas Sekretariat DPRD',
+          note: note || 'Migrasi Data Absensi Manual Lama (Batch)',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        newLogsList.push(logItem);
+      }
+
+      setActivities(prev => {
+        const merged = [...newActivitiesList, ...prev.filter(p => !newActivitiesList.some(n => n.id === p.id))];
+        try { localStorage.setItem('siraport_activities', JSON.stringify(merged)); } catch (e) {}
+        return merged;
+      });
+
+      setLogs(prev => {
+        const newIds = new Set(newLogsList.map(l => l.id));
+        const nextLogs = [...newLogsList, ...prev.filter(l => !newIds.has(l.id))];
+        try {
+          localStorage.setItem('siraport_logs', JSON.stringify(nextLogs));
+          const bc = new BroadcastChannel('siraport_sync_channel');
+          bc.postMessage({ type: 'LOGS_UPDATED', logs: nextLogs });
+          bc.close();
+        } catch (e) {}
+        return nextLogs;
+      });
+
+      for (const act of newActivitiesList) {
+        try {
+          await setDoc(doc(db, COL.ACTIVITIES, act.id), {
+            ...act,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+        } catch (e) {
+          console.warn('Firestore batch activity write warning:', e);
+        }
+      }
+
+      for (const lg of newLogsList) {
+        try {
+          await setDoc(doc(db, COL.LOGS, lg.id), {
+            ...lg,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+        } catch (e) {
+          console.warn('Firestore batch log write warning:', e);
+        }
+      }
+
+      await logAudit({
+        action: 'LEGACY_ATTENDANCE_BATCH_IMPORTED',
+        details: `Berhasil migrasi dan mengimpor ${newLogsList.length} data absensi manual lama ke dalam SI-RAPORT.`,
+        method: 'IMPORT_EXCEL'
+      });
+
+      return {
+        success: true,
+        importedCount: newLogsList.length,
+        activitiesCount: newActivitiesList.length
+      };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  // ─── Edit & Koreksi Data Absensi Manual Lama dengan Jejak Audit ───────────────
+  const updateLegacyAttendance = async (logId, { status, checkInTime, checkOutTime, note, changeReason }) => {
+    try {
+      if (!['SECRETARIAT_ADMIN', 'PETUGAS_BK'].includes(currentRole)) {
+        return { success: false, message: 'Hanya Admin Sekretariat atau Petugas BK yang dapat mengoreksi data absensi.' };
+      }
+      if (!changeReason?.trim()) {
+        return { success: false, message: 'Alasan perubahan/koreksi wajib diisi untuk pencatatan Audit Trail.' };
+      }
+      const existingLog = logs.find(l => l.id === logId);
+      if (!existingLog) return { success: false, message: 'Data absensi tidak ditemukan.' };
+
+      const dateStr = existingLog.checkInAt ? existingLog.checkInAt.slice(0, 10) : new Date().toISOString().slice(0, 10);
+      let nextCheckInAt = existingLog.checkInAt;
+      if (checkInTime) {
+        try {
+          const d = new Date(`${dateStr}T${checkInTime}:00`);
+          if (!isNaN(d.getTime())) nextCheckInAt = d.toISOString();
+        } catch (e) {}
+      }
+
+      let nextCheckOutAt = existingLog.checkOutAt;
+      if (checkOutTime !== undefined) {
+        if (!checkOutTime) {
+          nextCheckOutAt = null;
+        } else {
+          try {
+            const d = new Date(`${dateStr}T${checkOutTime}:00`);
+            if (!isNaN(d.getTime())) nextCheckOutAt = d.toISOString();
+          } catch (e) {}
+        }
+      }
+
+      const updatedLog = {
+        ...existingLog,
+        status: status || existingLog.status,
+        checkInAt: nextCheckInAt,
+        timestamp: nextCheckInAt,
+        checkOutAt: nextCheckOutAt,
+        note: note !== undefined ? note : existingLog.note,
+        updatedAt: new Date().toISOString(),
+        lastCorrectedBy: currentUser?.name || 'Petugas BK',
+        lastCorrectionReason: changeReason.trim(),
+      };
+
+      setLogs(prev => {
+        const nextLogs = prev.map(l => l.id === logId ? updatedLog : l);
+        try {
+          localStorage.setItem('siraport_logs', JSON.stringify(nextLogs));
+          const bc = new BroadcastChannel('siraport_sync_channel');
+          bc.postMessage({ type: 'LOGS_UPDATED', logs: nextLogs });
+          bc.close();
+        } catch (e) {}
+        return nextLogs;
+      });
+
+      try {
+        await updateDoc(doc(db, COL.LOGS, logId), {
+          status: updatedLog.status,
+          checkInAt: updatedLog.checkInAt,
+          timestamp: updatedLog.timestamp,
+          checkOutAt: updatedLog.checkOutAt,
+          note: updatedLog.note,
+          lastCorrectedBy: updatedLog.lastCorrectedBy,
+          lastCorrectionReason: updatedLog.lastCorrectionReason,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (e) {
+        console.warn('Firestore update log error:', e);
+      }
+
+      await logAudit({
+        action: 'LEGACY_ATTENDANCE_CORRECTED',
+        details: `Koreksi data absensi ${existingLog.memberName} pada agenda "${existingLog.activityId}". Sebelum: [Status: ${existingLog.status}, Ket: ${existingLog.note || '-'}]; Sesudah: [Status: ${updatedLog.status}, Ket: ${updatedLog.note || '-'}]. Alasan koreksi: ${changeReason.trim()}`,
+        method: 'ADMIN_CORRECTION'
+      });
+
+      return { success: true, log: updatedLog };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  // ─── Hapus Data Absensi Manual Lama dengan Jejak Audit ────────────────────────
+  const deleteLegacyAttendance = async (logId, reason = '') => {
+    if (!['SECRETARIAT_ADMIN', 'PETUGAS_BK'].includes(currentRole)) {
+      return { success: false, message: 'Hanya Admin atau Petugas BK yang dapat menghapus data absensi manual lama.' };
+    }
+    const target = logs.find(log => log.id === logId);
+    if (!target) return { success: false, message: 'Data absensi tidak ditemukan.' };
+
+    try {
+      const nextDeletedIds = Array.from(new Set([...deletedLogIds, logId]));
+      setDeletedLogIds(nextDeletedIds);
+      try { localStorage.setItem('siraport_deleted_log_ids', JSON.stringify(nextDeletedIds)); } catch (e) {}
+
+      setLogs(previous => {
+        const next = previous.filter(log => log.id !== logId);
+        try {
+          localStorage.setItem('siraport_logs', JSON.stringify(next));
+          const channel = new BroadcastChannel('siraport_sync_channel');
+          channel.postMessage({ type: 'LOGS_UPDATED', logs: next });
+          channel.postMessage({ type: 'LOG_DELETED', logId });
+          channel.close();
+        } catch (e) {}
+        return next;
+      });
+
+      try { await deleteDoc(doc(db, COL.LOGS, logId)); } catch (e) { console.warn('Firestore delete log fallback:', e); }
+      try {
+        await setDoc(doc(db, COL.DELETED_LOGS, logId), {
+          ...target,
+          deletedAt: serverTimestamp(),
+          deletedBy: currentUser?.name || 'Admin',
+          deleteReason: reason || 'Koreksi penghapusan data manual lama'
+        });
+      } catch (e) {
+        console.warn('Firestore tombstone fallback:', e);
+      }
+
+      await logAudit({
+        action: 'LEGACY_ATTENDANCE_DELETED',
+        details: `Menghapus data absensi manual lama ${target.memberName} (${target.status}) dari agenda ${target.activityId}. Alasan: ${reason || 'Penghapusan manual'}`,
+        method: 'ADMIN_CORRECTION'
+      });
+
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
 
 
   // ─── Verifikasi PIN Anggota DPRD (Anti-Titip Absen via Identitas) ────────
@@ -2224,8 +2745,9 @@ export function AttendanceProvider({ children }) {
       currentRole,
       activeMemberId, setActiveMemberId,
       canManageMembers, isAdmin, isBK,
-      getMemberById, getPersonnelById, getParticipantById, getMemberByQR, getActivityById, getActivityByQR, getMemberRaport,
+      getMemberById, getPersonnelById, getParticipantById, getMemberByQR, getActivityById, getActivityByQR, getMemberRaport, getMemberAKDRaports,
       recordAttendance, checkoutAttendance, recordGuestAttendance, recordManualAttendance,
+      recordLegacyAttendance, batchImportLegacyAttendance, updateLegacyAttendance, deleteLegacyAttendance,
       removeAttendancePhoto,
       requestLeave, reviewLeaveRequest,
       getLPJData, updateLPJSummary,

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
 import ERaportModal from '../components/ERaportModal';
+import LegacyAttendanceModal from '../components/LegacyAttendanceModal';
 import {
   FileSpreadsheet,
   Search,
@@ -11,7 +12,9 @@ import {
   FileText,
   Printer,
   ShieldAlert,
-  ChevronRight
+  ChevronRight,
+  BookOpen,
+  Upload
 } from 'lucide-react';
 
 import { AKD_CATEGORIES, getMemberAKDs, matchAKDCategory } from '../utils/akdUtils';
@@ -35,6 +38,14 @@ export default function RaportList() {
   const [activeModalMemberId, setActiveModalMemberId] = useState(null);
   const [activeModalReportType, setActiveModalReportType] = useState('AVERAGE');
   const [reportType, setReportType] = useState('AVERAGE');
+  const [isLegacyModalOpen, setIsLegacyModalOpen] = useState(false);
+
+  useEffect(() => {
+    window.__openLegacyModal = () => setIsLegacyModalOpen(true);
+    return () => {
+      delete window.__openLegacyModal;
+    };
+  }, []);
 
   useEffect(() => {
     const clearPrintMode = () => document.body.classList.remove('raport-list-printing');
@@ -74,24 +85,37 @@ export default function RaportList() {
     return matchSearch && matchColor && matchFraksi && (reportType === 'AVERAGE' || matchAKD);
   });
 
-  const akdRaports = memberRaports.flatMap(({ member, bkNote }) => {
-    const candidateCategories = [
-      ...(selectedAKD === 'ALL' ? getMemberAKDs(member) : [selectedAKD]),
-      'Rapat Paripurna'
-    ];
-    const categories = candidateCategories.filter((category, index, values) => {
-      const normalizedCategory = String(category || '').trim().toLowerCase();
-      return normalizedCategory && values.findIndex(value => String(value || '').trim().toLowerCase() === normalizedCategory) === index;
-    });
+  const akdRaports = useMemo(() => {
+    if (selectedAKD === 'ALL') {
+      return memberRaports.map(({ member, bkNote }) => {
+        const akds = [...getMemberAKDs(member), 'Rapat Paripurna']
+          .filter((cat, idx, self) => self.findIndex(v => matchAKDCategory(v, cat)) === idx);
+        const perAkdRaports = akds.map(akd => ({
+          akd,
+          raport: getMemberRaport(member.id, akd, selectedPeriodMonth, selectedActivity, selectedYear)
+        }));
+        return {
+          member,
+          category: getMemberAKDs(member).join(', ') || member.komisi || 'Anggota',
+          perAkdRaports,
+          raport: getMemberRaport(member.id, 'ALL', selectedPeriodMonth, selectedActivity, selectedYear),
+          bkNote
+        };
+      });
+    }
 
-    return categories.map(category => ({
+    return memberRaports
+      .filter(({ member }) => {
+        if (/paripurna/i.test(selectedAKD)) return true;
+        return getMemberAKDs(member).some(akd => matchAKDCategory(akd, selectedAKD));
+      })
+      .map(({ member, bkNote }) => ({
         member,
-        category,
-        raport: getMemberRaport(member.id, category, selectedPeriodMonth, selectedActivity, selectedYear),
+        category: selectedAKD,
+        raport: getMemberRaport(member.id, selectedAKD, selectedPeriodMonth, selectedActivity, selectedYear),
         bkNote
-      }))
-      .filter(row => row.raport.totalMandatory > 0);
-  });
+      }));
+  }, [memberRaports, selectedAKD, selectedPeriodMonth, selectedActivity, selectedYear, getMemberRaport]);
 
   const reportRows = reportType === 'AVERAGE' ? memberRaports : akdRaports;
 
@@ -132,7 +156,14 @@ export default function RaportList() {
           </p>
         </div>
 
-        <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          <button
+            onClick={() => setIsLegacyModalOpen(true)}
+            className="flex-1 sm:flex-none px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-900/30 transition border border-amber-500/40"
+          >
+            <BookOpen className="w-4 h-4 text-amber-200" />
+            <span>Migrasi / Input Absensi Manual Lama</span>
+          </button>
           <button onClick={exportWorkbook} className="flex-1 sm:flex-none px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 transition"><FileSpreadsheet className="w-4 h-4" /> Excel (.xlsx)</button>
           <button onClick={() => { document.body.classList.add('raport-list-printing'); window.setTimeout(() => window.print(), 100); }} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition"><Printer className="w-4 h-4 text-emerald-400" /> Cetak / PDF</button>
         </div>
@@ -324,46 +355,74 @@ export default function RaportList() {
         
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-            {reportType === 'AVERAGE' ? `Rekap Raport Keseluruhan / Rata-Rata (${memberRaports.length} Anggota)` : `Rekap Raport Berdasarkan AKD (${akdRaports.length} Rekap)`}
+            {reportType === 'AVERAGE'
+              ? `Rekap Raport Keseluruhan / Rata-Rata (${reportRows.length} Anggota)`
+              : `Rekap Raport Berdasarkan AKD: ${selectedAKD === 'ALL' ? 'Semua AKD' : selectedAKD} (${reportRows.length} Anggota)`}
           </h3>
         </div>
 
         <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
-          <table className="w-full min-w-[1100px] text-xs text-left text-slate-700 dark:text-slate-300">
+          <table className="w-full min-w-[1280px] text-xs text-left text-slate-700 dark:text-slate-300">
             <thead className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold">
               <tr>
-                <th className="p-3 whitespace-nowrap">Anggota</th>
-                <th className="p-3 whitespace-nowrap">{reportType === 'AKD' ? 'AKD' : 'Fraksi / Komisi'}</th>
-                <th className="p-3 text-center whitespace-nowrap">Agenda</th>
-                <th className="p-3 text-center whitespace-nowrap">Hadir</th>
-                <th className="p-3 text-center whitespace-nowrap">Tepat Waktu</th>
-                <th className="p-3 text-center whitespace-nowrap">Terlambat</th>
-                <th className="p-3 text-center whitespace-nowrap">Izin / Sakit</th>
-                <th className="p-3 text-center whitespace-nowrap">Dinas Luar</th>
-                <th className="p-3 text-center whitespace-nowrap">Alpha</th>
-                <th className="p-3 text-right whitespace-nowrap">Kehadiran</th>
-                <th className="p-3 text-center whitespace-nowrap">Kategori</th>
-                <th className="p-3 text-center whitespace-nowrap">Status BK</th>
-                <th className="p-3 text-right whitespace-nowrap">e-Raport</th>
+                <th className="p-3 whitespace-nowrap min-w-[220px]">Anggota</th>
+                <th className="p-3 whitespace-nowrap min-w-[300px]">{reportType === 'AKD' ? (selectedAKD === 'ALL' ? 'Keanggotaan AKD & Nilai' : 'AKD') : 'Fraksi / Komisi'}</th>
+                <th className="p-3 text-center whitespace-nowrap min-w-[70px]">Agenda</th>
+                <th className="p-3 text-center whitespace-nowrap min-w-[70px]">Hadir</th>
+                <th className="p-3 text-center whitespace-nowrap min-w-[80px]">Tepat Waktu</th>
+                <th className="p-3 text-center whitespace-nowrap min-w-[80px]">Terlambat</th>
+                <th className="p-3 text-center whitespace-nowrap min-w-[90px]">Izin / Sakit</th>
+                <th className="p-3 text-center whitespace-nowrap min-w-[80px]">Dinas Luar</th>
+                <th className="p-3 text-center whitespace-nowrap min-w-[70px]">Alpha</th>
+                <th className="p-3 text-right whitespace-nowrap min-w-[110px]">Kehadiran</th>
+                <th className="p-3 text-center whitespace-nowrap min-w-[110px]">Kategori</th>
+                <th className="p-3 text-center whitespace-nowrap min-w-[120px]">Status BK</th>
+                <th className="p-3 text-right whitespace-nowrap min-w-[90px]">e-Raport</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {reportRows.map(({ member, raport, bkNote, category }) => (
+              {reportRows.map(({ member, raport, bkNote, category, perAkdRaports }) => (
                 <tr key={`${member.id}-${category || 'average'}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                   
-                  <td className="p-3">
+                  <td className="p-3 min-w-[220px]">
                     <div className="flex items-center space-x-3">
-                      <img src={member.photo} alt="" className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0" />
-                      <div>
-                        <h4 className="font-bold text-slate-900 dark:text-white">{member.name}</h4>
-                        <p className="text-[11px] text-slate-400 font-mono">NIP: {member.nip}</p>
+                      <img src={member.photo} alt="" className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0" />
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 dark:text-white whitespace-normal leading-tight">{member.name}</h4>
+                        <p className="text-[11px] text-slate-400 font-mono mt-0.5">NIP: {member.nip || '-'}</p>
                       </div>
                     </div>
                   </td>
 
-                  <td className="p-3">
-                    <p className="font-semibold text-slate-800 dark:text-slate-200">{reportType === 'AKD' ? category : member.fraksi}</p>
-                    <p className="text-[11px] text-slate-400">{reportType === 'AKD' ? 'Agenda wajib sesuai keanggotaan' : member.komisi}</p>
+                  <td className="p-3 min-w-[300px]">
+                    {reportType === 'AKD' && selectedAKD === 'ALL' && perAkdRaports?.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <p className="font-semibold text-slate-800 dark:text-slate-200 text-xs">{member.fraksi} • {member.komisi}</p>
+                        <div className="flex flex-wrap gap-1.5 max-w-[320px]">
+                          {perAkdRaports.map(({ akd, raport: akdRaport }) => {
+                            const isNoData = akdRaport.totalMandatory === 0 || akdRaport.percentage === null;
+                            return (
+                              <span
+                                key={akd}
+                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10.5px] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                              >
+                                <span className="font-bold">{akd}:</span>
+                                {isNoData ? (
+                                  <span className="italic text-slate-400 font-medium">Belum ada data</span>
+                                ) : (
+                                  <span className={`font-black ${akdRaport.categoryInfo.textColor}`}>{akdRaport.percentage}%</span>
+                                )}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-0.5">
+                        <p className="font-semibold text-slate-800 dark:text-slate-200 text-xs">{reportType === 'AKD' ? category : member.fraksi}</p>
+                        <p className="text-[11px] text-slate-400">{reportType === 'AKD' ? 'Agenda wajib sesuai keanggotaan' : member.komisi}</p>
+                      </div>
+                    )}
                   </td>
 
                   <td className="p-3 text-center font-mono text-[11px] font-bold">
@@ -396,13 +455,23 @@ export default function RaportList() {
                   </td>
 
                   <td className="p-3 text-right font-mono font-extrabold text-sm text-slate-900 dark:text-white">
-                    {raport.percentage === null ? '—' : `${raport.percentage}%`} <span className="text-cyan-600 dark:text-cyan-400">({raport.discipline.grade})</span>
+                    {raport.percentage === null || raport.totalMandatory === 0 ? (
+                      <span className="text-slate-400 text-xs font-normal italic">Belum ada data</span>
+                    ) : (
+                      <>{raport.percentage}% <span className="text-cyan-600 dark:text-cyan-400">({raport.discipline.grade})</span></>
+                    )}
                   </td>
 
                   <td className="p-3 text-center">
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${raport.categoryInfo.badgeClass}`}>
-                      {raport.categoryInfo.label}
-                    </span>
+                    {raport.totalMandatory === 0 || raport.percentage === null ? (
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                        Belum Ada Data
+                      </span>
+                    ) : (
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${raport.categoryInfo.badgeClass}`}>
+                        {raport.categoryInfo.label}
+                      </span>
+                    )}
                   </td>
 
                   <td className="p-3 text-center text-[11px]">
@@ -442,6 +511,12 @@ export default function RaportList() {
         onClose={() => setActiveModalMemberId(null)}
         memberId={activeModalMemberId}
         reportType={activeModalReportType}
+      />
+
+      {/* Legacy Attendance Migration Modal Component */}
+      <LegacyAttendanceModal
+        isOpen={isLegacyModalOpen}
+        onClose={() => setIsLegacyModalOpen(false)}
       />
 
     </div>

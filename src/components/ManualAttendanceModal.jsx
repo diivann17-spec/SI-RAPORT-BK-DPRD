@@ -131,7 +131,25 @@ export default function ManualAttendanceModal({ isOpen, onClose, activityId: pro
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+        {/* Banner Migrasi Manual Lama */}
+        <div className="mx-6 mt-4 p-3 bg-amber-950/40 border border-amber-800/60 rounded-2xl flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-amber-300">
+            <span>📜</span>
+            <span className="font-semibold">Perlu input data absensi sebelum sistem / massal?</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              handleClose();
+              if (window.__openLegacyModal) window.__openLegacyModal();
+            }}
+            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg text-[11px] shadow transition"
+          >
+            Migrasi Manual Lama
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 pt-3 space-y-4 text-xs">
 
           {/* ── Pilih Kegiatan ── */}
           <div>

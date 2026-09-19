@@ -6,11 +6,12 @@ import ActivityQRModal from '../components/ActivityQRModal';
 import LPJViewerModal from '../components/LPJViewerModal';
 import GuestAttendanceModal from '../components/GuestAttendanceModal';
 import InvitationGeneratorModal from '../components/InvitationGeneratorModal';
+import LegacyAttendanceModal from '../components/LegacyAttendanceModal';
 import {
   Calendar, Plus, MapPin, X, Edit2, Trash2, RotateCcw,
   Loader2, CheckCircle, AlertCircle, Clock, ChevronDown,
   ChevronRight, Building2, QrCode, FileSpreadsheet, UserPlus, Users,
-  UserCheck, UserMinus
+  UserCheck, UserMinus, BookOpen
 } from 'lucide-react';
 
 import { AKD_LIST, AKD_CATEGORIES, AKD_BADGE_COLORS, matchAKDCategory } from '../utils/akdUtils';
@@ -67,6 +68,7 @@ export default function ActivityList() {
   const [activeLPJActivityId, setActiveLPJActivityId] = useState(null);
   const [activeGuestActivityId, setActiveGuestActivityId] = useState(null);
   const [activeInvitationActivity, setActiveInvitationActivity] = useState(null);
+  const [isLegacyModalOpen, setIsLegacyModalOpen] = useState(false);
   const [draggedMemberId, setDraggedMemberId] = useState(null);
   const [participantTab, setParticipantTab] = useState('MEMBER');
   const [externalDraft, setExternalDraft] = useState({ agency: '', invitedName: '', position: '', category: 'OPD/INSTANSI' });
@@ -397,13 +399,22 @@ export default function ActivityList() {
           <p className="text-xs text-slate-500 mt-0.5">Komisi I-IV • BK • Bapemperda • Banggar • Banmus • Pansus 1-4 • Pimpinan • Paripurna</p>
         </div>
 
-        <button
-          onClick={openAdd}
-          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Buat Agenda Baru</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsLegacyModalOpen(true)}
+            className="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-900/20 transition shrink-0 border border-amber-500/40"
+          >
+            <BookOpen className="w-4 h-4 text-amber-200" />
+            <span>Migrasi Absensi Lama</span>
+          </button>
+          <button
+            onClick={openAdd}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Buat Agenda Baru</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Categories AKD Bar */}
@@ -1004,6 +1015,12 @@ export default function ActivityList() {
           updateActivity={updateActivity}
         />
       )}
+
+      {/* Modal Migrasi Absensi Manual Lama */}
+      <LegacyAttendanceModal
+        isOpen={isLegacyModalOpen}
+        onClose={() => setIsLegacyModalOpen(false)}
+      />
 
     </div>
   );

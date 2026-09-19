@@ -107,7 +107,8 @@ export function getStatusBadge(status) {
 }
 
 export function getMethodBadge(method) {
-  switch (method?.toUpperCase()) {
+  const norm = String(method || '').toUpperCase();
+  switch (norm) {
     case 'QR_AGENDA':
     case 'QR_SCAN':
       return { label: 'QR Code Agenda', icon: '📱', bg: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' };
@@ -119,10 +120,61 @@ export function getMethodBadge(method) {
       return { label: 'Portal Tamu OPD', icon: '🏢', bg: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300' };
     case 'MANUAL_OVERRIDE':
     case 'MANUAL':
-      return { label: 'Manual Petugas', icon: '✍️', bg: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300' };
+    case 'PETUGAS':
+      return { label: 'Petugas', icon: '✍️', bg: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300' };
+    case 'MANUAL_LEGACY':
+    case 'LEGACY_MANUAL':
+    case 'MANUAL_LAMA':
+      return { label: 'Manual Lama', icon: '📜', bg: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' };
     default:
       return { label: method || 'Sistem', icon: '💻', bg: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300' };
   }
+}
+
+/**
+ * Mendapatkan penanda ringkas sumber data absensi: 'Manual Lama' | 'QR' | 'Petugas' | 'Sistem'
+ * @param {Object|string} logOrMethod
+ * @returns {{ key: string, label: string, icon: string, badgeClass: string }}
+ */
+export function getSourceBadge(logOrMethod) {
+  const method = typeof logOrMethod === 'object' && logOrMethod !== null
+    ? (logOrMethod.source || logOrMethod.method || '')
+    : String(logOrMethod || '');
+  const norm = method.toUpperCase();
+
+  if (norm.includes('LEGACY') || norm.includes('LAMA') || norm === 'MANUAL_LEGACY') {
+    return {
+      key: 'LEGACY',
+      label: 'Manual Lama',
+      icon: '📜',
+      badgeClass: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800'
+    };
+  }
+
+  if (norm.includes('QR') || norm.includes('GPS') || norm === 'GUEST_CHECKIN') {
+    return {
+      key: 'QR',
+      label: 'QR',
+      icon: '📱',
+      badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800'
+    };
+  }
+
+  if (norm.includes('MANUAL') || norm.includes('OVERRIDE') || norm.includes('PETUGAS')) {
+    return {
+      key: 'PETUGAS',
+      label: 'Petugas',
+      icon: '✍️',
+      badgeClass: 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800'
+    };
+  }
+
+  return {
+    key: 'SYSTEM',
+    label: 'Sistem',
+    icon: '💻',
+    badgeClass: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+  };
 }
 
 /**

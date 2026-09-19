@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAttendance } from '../context/AttendanceContext';
-import { getRaportCategory, getStatusBadge } from '../utils/raportUtils';
+import { getRaportCategory, getStatusBadge, getSourceBadge } from '../utils/raportUtils';
 import { getAttendancePhoto } from '../utils/attendancePhotoStore';
 import ERaportModal from '../components/ERaportModal';
 import { AKD_CATEGORIES } from '../utils/akdUtils';
@@ -37,6 +37,7 @@ export default function MemberPortal({ onNavigate }) {
     activities,
     logs,
     getMemberRaport,
+    getMemberAKDRaports,
     currentUser,
     leaveRequests,
     requestLeave,
@@ -51,6 +52,7 @@ export default function MemberPortal({ onNavigate }) {
   // Ambil data anggota saat ini
   const member = getMemberById(activeMemberId) || members.find(m => m.id === currentUser?.memberId) || members[0];
   const raport = member ? getMemberRaport(member.id, selectedCategory) : null;
+  const akdRaportsList = member ? (getMemberAKDRaports ? getMemberAKDRaports(member.id) : []) : [];
   const defaultLeaveActivityId = activities.find(a => a.status === 'ACTIVE')?.id || activities[0]?.id || '';
 
   // Foto Presensi
@@ -429,15 +431,16 @@ export default function MemberPortal({ onNavigate }) {
                   <th className="p-3">Agenda Sidang</th>
                   <th className="p-3">Waktu Presensi</th>
                   <th className="p-3">Status</th>
-                  <th className="p-3">Metode / Perangkat</th>
+                  <th className="p-3">Sumber Data</th>
                   <th className="p-3">Foto Dokumentasi</th>
                   <th className="p-3">Keterangan / SPT</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {activities.map(act => {
-                  const log = memberLogs.find(l => l.activityId === act.id);
+                  const log = memberLogs.find(l => (l.activityId || l.agendaId) === act.id);
                   const badge = log ? getStatusBadge(log.status) : getStatusBadge('alpha');
+                  const sourceBadge = log ? getSourceBadge(log) : { key: 'NONE', label: 'Belum Hadir', icon: '⚪', badgeClass: 'bg-slate-100 text-slate-500 border-slate-200' };
                   const checkInPhoto = log ? (photoUrls[`${log.id}:CHECK_IN`] || (String(log.documentationPhoto || '').startsWith('data:image/') ? log.documentationPhoto : null)) : null;
                   const checkOutPhoto = log ? (photoUrls[`${log.id}:CHECK_OUT`] || (String(log.checkoutPhoto || '').startsWith('data:image/') ? log.checkoutPhoto : null)) : null;
 
@@ -450,7 +453,11 @@ export default function MemberPortal({ onNavigate }) {
                           {badge.label}
                         </span>
                       </td>
-                      <td className="p-3 text-[11px]">{log?.method || 'SYSTEM'} ({log?.deviceType || 'Smartphone'})</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold border ${sourceBadge.badgeClass}`}>
+                          {sourceBadge.icon} {sourceBadge.label}
+                        </span>
+                      </td>
                       <td className="p-3">
                         {log ? (
                           <div className="flex items-center gap-2">
@@ -501,20 +508,108 @@ export default function MemberPortal({ onNavigate }) {
 
       {/* ── TAB 4: E-RAPORT ── */}
       {activeTab === 'raport' && (
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Raport Kehadiran Anggota Dewan</h3>
-                <p className="text-xs text-slate-400">Dokumen evaluasi resmi Badan Kehormatan (BK) DPRD Kabupaten Cirebon.</p>
+                <h3 className="font-extrabold text-base text-slate-900 dark:text-white">e-Raport Kehadiran Anggota Dewan</h3>
+                <p className="text-xs text-slate-400">Dokumen evaluasi kedisiplinan resmi Badan Kehormatan (BK) DPRD Kabupaten Cirebon.</p>
               </div>
               <button
                 onClick={() => setIsRaportModalOpen(true)}
-                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl text-xs flex items-center gap-2 shadow"
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow transition active:scale-95"
               >
                 <FileSpreadsheet className="w-4 h-4" />
-                <span>Buka Lembar Raport Lengkap (F4)</span>
+                <span>Buka Lembar Raport Lengkap (F4 / PDF)</span>
               </button>
+            </div>
+
+            {/* Overall Raport Summary Box */}
+            {raport && (
+              <div className={`p-4 sm:p-5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${raport.categoryInfo.badgeClass}`}>
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500 dark:text-slate-400 block">Ringkasan Keseluruhan</span>
+                  <h4 className="text-lg font-black text-slate-900 dark:text-white mt-0.5">Persentase Kehadiran Komposit</h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">{raport.categoryInfo.statusText}</p>
+                </div>
+                <div className="flex items-center gap-4 shrink-0">
+                  <div className="text-right">
+                    <span className="text-3xl font-black block">{raport.percentage === null ? '—' : `${raport.percentage}%`}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider block opacity-90">{raport.totalMandatory === 0 ? 'Belum Ada Data' : raport.categoryInfo.label}</span>
+                  </div>
+                  <div className={`w-12 h-12 rounded-2xl ${raport.categoryInfo.pillBg} flex items-center justify-center text-white text-xl font-bold shadow-md`}>
+                    {raport.discipline.grade}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Per-AKD Detailed Breakdown Cards */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">Rekapitulasi Kehadiran Per AKD & Paripurna</h4>
+              <span className="text-xs text-slate-500">{akdRaportsList.length} Alat Kelengkapan</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {akdRaportsList.map(({ akd, raport: akdRaport }) => {
+                const isNoData = akdRaport.totalMandatory === 0 || akdRaport.percentage === null;
+                return (
+                  <div key={akd} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-3">
+                    <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
+                      <div>
+                        <h5 className="font-extrabold text-sm text-slate-900 dark:text-white">{akd}</h5>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{akdRaport.totalMandatory} Agenda Wajib Hadir</p>
+                      </div>
+                      {isNoData ? (
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                          Belum ada data
+                        </span>
+                      ) : (
+                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${akdRaport.categoryInfo.badgeClass}`}>
+                          {akdRaport.categoryInfo.key}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-xs text-slate-500 font-semibold">Persentase AKD:</span>
+                      {isNoData ? (
+                        <span className="text-sm font-bold text-slate-400 italic">Belum ada data</span>
+                      ) : (
+                        <span className={`text-2xl font-black ${akdRaport.categoryInfo.textColor}`}>
+                          {akdRaport.percentage}%
+                        </span>
+                      )}
+                    </div>
+
+                    {/* AKD Breakdown Stats Grid */}
+                    <div className="grid grid-cols-5 gap-1 text-center pt-2 border-t border-slate-100 dark:border-slate-800 text-[10px]">
+                      <div className="bg-emerald-50 dark:bg-emerald-950/40 p-1.5 rounded-lg">
+                        <span className="block text-slate-500 font-medium">Hadir</span>
+                        <span className="font-black text-emerald-600 dark:text-emerald-400">{akdRaport.breakdown.hadir}</span>
+                      </div>
+                      <div className="bg-indigo-50 dark:bg-indigo-950/40 p-1.5 rounded-lg">
+                        <span className="block text-slate-500 font-medium">Dinas</span>
+                        <span className="font-black text-indigo-600 dark:text-indigo-400">{akdRaport.breakdown.dinas}</span>
+                      </div>
+                      <div className="bg-amber-50 dark:bg-amber-950/40 p-1.5 rounded-lg">
+                        <span className="block text-slate-500 font-medium">Late</span>
+                        <span className="font-black text-amber-600 dark:text-amber-400">{akdRaport.breakdown.terlambat}</span>
+                      </div>
+                      <div className="bg-blue-50 dark:bg-blue-950/40 p-1.5 rounded-lg">
+                        <span className="block text-slate-500 font-medium">Izin</span>
+                        <span className="font-black text-blue-600 dark:text-blue-400">{akdRaport.breakdown.izin + akdRaport.breakdown.sakit}</span>
+                      </div>
+                      <div className="bg-rose-50 dark:bg-rose-950/40 p-1.5 rounded-lg">
+                        <span className="block text-slate-500 font-medium">Alpa</span>
+                        <span className="font-black text-rose-600 dark:text-rose-400">{akdRaport.breakdown.alpa}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

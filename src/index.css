@@ -99,8 +99,8 @@
   }
 
   .digital-member-card {
-    height: 260px;
-    min-height: 260px;
+    height: 270px;
+    min-height: 270px;
     break-inside: avoid;
   }
 
@@ -132,13 +132,13 @@
     }
 
     .digital-card-print-page.cards-per-5 .digital-member-card {
-      height: 65mm;
-      min-height: 65mm;
+      height: 68mm;
+      min-height: 68mm;
     }
 
     .digital-card-print-page.cards-per-6 .digital-member-card {
-      height: 58mm;
-      min-height: 58mm;
+      height: 60mm;
+      min-height: 60mm;
     }
 
     .digital-card-print-page.cards-per-6 .digital-member-card {
