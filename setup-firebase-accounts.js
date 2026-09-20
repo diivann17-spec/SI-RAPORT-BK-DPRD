@@ -33,7 +33,7 @@ const ACCOUNTS_TO_SETUP = [
   },
   {
     username: 'bk',
-    password: 'bk123',
+    password: 'bk123456',
     emailAuth: 'bk@auth.si-raport.local',
     fullName: 'Petugas Badan Kehormatan',
     email: 'bk@dprd.go.id',
@@ -106,7 +106,7 @@ async function setup() {
         status: 'ACTIVE',
         department: acc.department,
         memberId: acc.memberId,
-        createdBy: 'SYSTEM_INIT',
+        createdBy: uid,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }, { merge: true });

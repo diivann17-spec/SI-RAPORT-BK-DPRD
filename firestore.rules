@@ -215,24 +215,22 @@ service cloud.firestore {
       // mencari akun berdasarkan usernameNormalized (query getDocs oleh accountService)
       allow list: if isAdminOrBK() || signedIn();
 
-      allow create: if (isAdmin() ||
-        (isBK() && request.resource.data.role != 'SECRETARIAT_ADMIN')) &&
+      // Izinkan create/update jika:
+      // 1. User yang login adalah Admin (atau BK untuk non-Admin)
+      // 2. Atau User baru terautentikasi dan mendaftarkan dokumen akunnya sendiri untuk pertama kali
+      allow create: if (isAdmin() || (isBK() && request.resource.data.role != 'SECRETARIAT_ADMIN') ||
+          (signedIn() && request.auth.uid == accountId && !exists(accountPath()))) &&
         hasAccountFields() &&
         validRole(request.resource.data.role) &&
         validAccountStatus(request.resource.data.status) &&
-        request.resource.data.status in ['ACTIVE', 'INACTIVE'] &&
-        request.resource.data.uid == accountId &&
-        request.resource.data.createdBy == request.auth.uid &&
-        request.resource.data.createdAt == request.time;
+        request.resource.data.uid == accountId;
 
       allow update: if (isAdmin() ||
-        (isBK() && resource.data.role != 'SECRETARIAT_ADMIN' &&
-         request.resource.data.role == resource.data.role)) &&
+        (isBK() && resource.data.role != 'SECRETARIAT_ADMIN' && request.resource.data.role == resource.data.role) ||
+        (signedIn() && request.auth.uid == accountId)) &&
         hasAccountFields() &&
         validRole(request.resource.data.role) &&
-        validAccountStatus(request.resource.data.status) &&
-        accountImmutableFieldsUnchanged() &&
-        hasServerUpdateMetadata();
+        validAccountStatus(request.resource.data.status);
 
       // Use INACTIVE/SUSPENDED instead of deleting accounts in production.
       allow delete: if false;

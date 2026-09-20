@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, getDocs } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -14,6 +15,15 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 async function check() {
+  console.log('🔑 Authenticating as admin...');
+  try {
+    const auth = getAuth(app);
+    await signInWithEmailAndPassword(auth, 'admin@auth.si-raport.local', 'admin123');
+    console.log('✅ Admin authenticated!');
+  } catch (authErr) {
+    console.warn('⚠️ Admin auth failed:', authErr.message);
+  }
+
   console.log('🔍 Memeriksa daftar akun di Firestore...');
   try {
     const snap = await getDocs(collection(db, 'accounts'));
