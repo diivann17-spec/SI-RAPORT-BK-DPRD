@@ -24,9 +24,10 @@ import {
   onSnapshot,
   serverTimestamp,
   writeBatch,
-  runTransaction
+  runTransaction,
+  getDoc
 } from 'firebase/firestore';
-import { db } from './config';
+import { auth, db, firebaseConfig } from './config';
 
 // ─── Collection References ────────────────────────────────────────────────────
 export const COLLECTIONS = {
@@ -206,7 +207,44 @@ export async function fetchBKNotes() {
  * Panggil sekali dari halaman Settings → "Sinkronisasi Demo Data ke Firestore".
  */
 export async function seedFirestoreFromMockData(members, activities, logs, auditTrails, bkNotes) {
+  const firebaseUser = auth.currentUser;
+  console.info('[FIRESTORE SEED] Start', {
+    projectId: firebaseConfig.projectId,
+    authenticated: Boolean(firebaseUser),
+    uid: firebaseUser?.uid || null,
+    email: firebaseUser?.email || null
+  });
+
+  if (!firebaseUser || firebaseUser.isAnonymous) {
+    throw new Error('Sesi Firebase Auth tidak aktif. Silakan logout, login ulang, lalu coba seed kembali.');
+  }
+
+  const accountSnapshot = await getDoc(doc(db, 'accounts', firebaseUser.uid));
+  const account = accountSnapshot.exists() ? accountSnapshot.data() : null;
+  const role = account?.role || null;
+  console.info('[FIRESTORE SEED] Authorization', {
+    projectId: firebaseConfig.projectId,
+    uid: firebaseUser.uid,
+    role,
+    status: account?.status || null,
+    accountExists: accountSnapshot.exists()
+  });
+
+  if (!accountSnapshot.exists() || account?.status !== 'ACTIVE' || !['SECRETARIAT_ADMIN', 'PETUGAS_BK'].includes(role)) {
+    throw new Error('Akun Firebase harus berstatus ACTIVE dengan role SECRETARIAT_ADMIN atau PETUGAS_BK untuk melakukan seed.');
+  }
+
   let writeCount = 0;
+  const logWrite = (collectionName, documentId) => {
+    console.info('[FIRESTORE SEED] Queue write', {
+      projectId: firebaseConfig.projectId,
+      uid: firebaseUser.uid,
+      role,
+      collection: collectionName,
+      documentId,
+      merge: true
+    });
+  };
 
   // Seed master data first. Attendance rules validate the persisted activity,
   // so activities must exist before attendance logs are written.
@@ -214,6 +252,7 @@ export async function seedFirestoreFromMockData(members, activities, logs, audit
   members.forEach(m => {
     const { id, ...data } = m;
     const ref = doc(db, COLLECTIONS.MEMBERS, id);
+    logWrite(COLLECTIONS.MEMBERS, id);
     masterBatch.set(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
     writeCount++;
   });
@@ -221,10 +260,23 @@ export async function seedFirestoreFromMockData(members, activities, logs, audit
   activities.forEach(a => {
     const { id, ...data } = a;
     const ref = doc(db, COLLECTIONS.ACTIVITIES, id);
+    logWrite(COLLECTIONS.ACTIVITIES, id);
     masterBatch.set(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
     writeCount++;
   });
-  await masterBatch.commit();
+  try {
+    await masterBatch.commit();
+  } catch (error) {
+    console.error('[FIRESTORE SEED] Master batch rejected', {
+      projectId: firebaseConfig.projectId,
+      uid: firebaseUser.uid,
+      role,
+      collections: [COLLECTIONS.MEMBERS, COLLECTIONS.ACTIVITIES],
+      code: error.code,
+      message: error.message
+    });
+    throw new Error(`Seed master data ditolak Firestore (${error.code || 'unknown'}). Pastikan rules production sudah ter-deploy untuk project ${firebaseConfig.projectId}.`);
+  }
 
   // Old cached logs may not contain the fields required by the production
   // attendance rules. Skip those records instead of failing the whole seed.
@@ -245,11 +297,24 @@ export async function seedFirestoreFromMockData(members, activities, logs, audit
 
     const stableId = `ATT${isExternal ? '-GST' : ''}-${data.activityId}-${data.participantId}`;
     const ref = doc(db, COLLECTIONS.ATTENDANCE_LOGS, stableId);
+    logWrite(COLLECTIONS.ATTENDANCE_LOGS, stableId);
     logBatch.set(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
     validLogCount++;
   });
   if (validLogCount > 0) {
-    await logBatch.commit();
+    try {
+      await logBatch.commit();
+    } catch (error) {
+      console.error('[FIRESTORE SEED] Attendance batch rejected', {
+        projectId: firebaseConfig.projectId,
+        uid: firebaseUser.uid,
+        role,
+        collection: COLLECTIONS.ATTENDANCE_LOGS,
+        code: error.code,
+        message: error.message
+      });
+      throw new Error(`Seed log absensi ditolak Firestore (${error.code || 'unknown'}). Periksa status kegiatan dan rules attendanceLogs.`);
+    }
     writeCount += validLogCount;
   }
 
@@ -257,11 +322,24 @@ export async function seedFirestoreFromMockData(members, activities, logs, audit
   let noteCount = 0;
   Object.entries(bkNotes).forEach(([memberId, note]) => {
     const ref = doc(db, COLLECTIONS.BK_NOTES, memberId);
+    logWrite(COLLECTIONS.BK_NOTES, memberId);
     noteBatch.set(ref, { ...note, memberId, updatedAt: serverTimestamp() }, { merge: true });
     noteCount++;
   });
   if (noteCount > 0) {
-    await noteBatch.commit();
+    try {
+      await noteBatch.commit();
+    } catch (error) {
+      console.error('[FIRESTORE SEED] BK notes batch rejected', {
+        projectId: firebaseConfig.projectId,
+        uid: firebaseUser.uid,
+        role,
+        collection: COLLECTIONS.BK_NOTES,
+        code: error.code,
+        message: error.message
+      });
+      throw new Error(`Seed catatan BK ditolak Firestore (${error.code || 'unknown'}). Periksa rules bkNotes.`);
+    }
     writeCount += noteCount;
   }
 
