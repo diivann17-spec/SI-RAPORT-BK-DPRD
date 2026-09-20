@@ -103,7 +103,9 @@ const LOCAL_TEST_ACCOUNTS = [
   },
 ];
 
-const isLocalDevelopmentAuth = import.meta.env.VITE_AUTH_MODE === 'local';
+// Local auth is only valid for a Vite development server. Production builds
+// must always authenticate against Firebase so Firestore Rules can authorize writes.
+const isLocalDevelopmentAuth = import.meta.env.DEV && import.meta.env.VITE_AUTH_MODE === 'local';
 
 const normalizeLoginId = (value) => String(value || '').trim().toUpperCase();
 

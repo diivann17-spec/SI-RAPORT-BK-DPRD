@@ -1773,7 +1773,7 @@ export function AttendanceProvider({ children }) {
         if (!memberData.username || !memberData.password) {
           return { success: false, message: 'Username dan password login harus diisi bersama.' };
         }
-        if (import.meta.env.VITE_AUTH_MODE === 'local') {
+        if (import.meta.env.DEV && import.meta.env.VITE_AUTH_MODE === 'local') {
           return { success: false, message: 'Pembuatan akun anggota memerlukan mode Firestore, bukan mode local testing.' };
         }
 

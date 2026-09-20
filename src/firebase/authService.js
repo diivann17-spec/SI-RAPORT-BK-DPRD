@@ -21,7 +21,7 @@ import { validateLoginWithWhitelist } from './accountService';
 const SESSION_STORAGE_KEY = 'si_raport_session';
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 menit
 const REMEMBER_ME_KEY = 'si_raport_remember_username';
-const isLocalAuthMode = import.meta.env.VITE_AUTH_MODE === 'local';
+const isLocalAuthMode = import.meta.env.DEV && import.meta.env.VITE_AUTH_MODE === 'local';
 
 // ─── SESSION STATUS ───────────────────────────────────────────────────────────
 export const SESSION_STATUS = {
