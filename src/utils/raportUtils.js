@@ -54,6 +54,22 @@ export function getDisciplineGrade(percentage, thresholds = {}) {
   return { grade: 'E', label: 'Sangat Kurang' };
 }
 
+/** Normalize statuses shared by manual input, recaps, and e-RAPORT. */
+export function normalizeAttendanceStatus(status, log = {}) {
+  const value = String(status ?? '').trim().toLowerCase();
+  const source = String(log.source || log.method || '').toUpperCase();
+  const isLegacyManual = log.isLegacy === true || source.includes('LEGACY') || source.includes('MANUAL_LAMA');
+
+  if (!value) return isLegacyManual ? 'Hadir' : 'Alpha';
+  if (value.includes('terlambat')) return 'Terlambat';
+  if (value.includes('dinas') || value.includes('tugas kedinasan')) return 'Dinas Luar';
+  if (value.includes('izin') || value.includes('ijin')) return 'Izin';
+  if (value.includes('sakit')) return 'Sakit';
+  if (value.includes('alpha') || value.includes('alpa') || value.includes('tidak hadir') || value === 'tanpa keterangan' || value === 'absen') return 'Alpha';
+  if (value.includes('hadir') || value.includes('on time') || value === 'present' || value === 'selesai/normal') return 'Hadir';
+  return isLegacyManual ? 'Hadir' : 'Alpha';
+}
+
 export function getStatusBadge(status) {
   const original = String(status || '').trim();
   const normalized = original.toLowerCase();
@@ -81,7 +97,7 @@ export function getStatusBadge(status) {
   switch (normalized) {
     case 'hadir tepat waktu':
     case 'hadir':
-      return { label: 'Hadir Tepat Waktu', bg: 'bg-emerald-500/10 text-emerald-600 border-emerald-300 dark:text-emerald-400 dark:border-emerald-800' };
+      return { label: 'Hadir', bg: 'bg-emerald-500/10 text-emerald-600 border-emerald-300 dark:text-emerald-400 dark:border-emerald-800' };
     case 'terlambat':
     case 'hadir terlambat':
       return { label: 'Terlambat', bg: 'bg-amber-500/10 text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-800' };

@@ -42,7 +42,7 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
 
   // Filter activities up to selectedMaxMonth
   const memberAKDs = getMemberAKDs(member);
-  const memberLogs = logs.filter(l => l.memberId === memberId && l.participantType !== 'EXTERNAL');
+  const memberLogs = logs.filter(l => (l.memberId || l.participantId) === memberId && l.participantType !== 'EXTERNAL');
 
   const filteredActivities = activities.filter(act => {
     if (selectedMaxMonth !== 'ALL' && act.date) {

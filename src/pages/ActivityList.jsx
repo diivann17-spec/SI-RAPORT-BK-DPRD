@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useAttendance } from '../context/AttendanceContext';
-import { formatLiveTimestamp } from '../utils/raportUtils';
+import { formatLiveTimestamp, normalizeAttendanceStatus } from '../utils/raportUtils';
 import ActivityQRModal from '../components/ActivityQRModal';
 import LPJViewerModal from '../components/LPJViewerModal';
 import GuestAttendanceModal from '../components/GuestAttendanceModal';
@@ -359,16 +359,23 @@ export default function ActivityList() {
       ? members.filter(member => participantIds.includes(member.id))
       : [];
     const internalLogs = actLogs.filter(l => l.participantType !== 'EXTERNAL');
-    const internalLogByMember = new Map(internalLogs.filter(log => log.memberId).map(log => [log.memberId, log]));
+    const internalLogByMember = new Map(
+      internalLogs
+        .filter(log => log.memberId || log.participantId)
+        .map(log => [log.memberId || log.participantId, log])
+    );
     const statusCounts = { hadir: 0, belumHadir: 0, izin: 0, sakit: 0, dinasLuar: 0, tanpaKeterangan: 0 };
     participantMembers.forEach(member => {
-      const status = (internalLogByMember.get(member.id)?.status || '').toLowerCase();
-      if (!status) statusCounts.belumHadir += 1;
-      else if (status.includes('izin')) statusCounts.izin += 1;
-      else if (status.includes('sakit')) statusCounts.sakit += 1;
-      else if (status.includes('dinas')) statusCounts.dinasLuar += 1;
-      else if (status.includes('tanpa') || status.includes('alpa') || status.includes('alpha')) statusCounts.tanpaKeterangan += 1;
-      else statusCounts.hadir += 1;
+      const log = internalLogByMember.get(member.id);
+      if (!log) statusCounts.belumHadir += 1;
+      else {
+        const status = normalizeAttendanceStatus(log.status, log);
+        if (status === 'Izin') statusCounts.izin += 1;
+        else if (status === 'Sakit') statusCounts.sakit += 1;
+        else if (status === 'Dinas Luar') statusCounts.dinasLuar += 1;
+        else if (status === 'Alpha') statusCounts.tanpaKeterangan += 1;
+        else statusCounts.hadir += 1;
+      }
     });
     const externalCount = actLogs.filter(l => l.participantType === 'EXTERNAL').length;
     return {

@@ -155,6 +155,20 @@ service cloud.firestore {
         request.resource.data.memberId in get(activityPath(request.resource.data.activityId)).data.participantMemberIds;
     }
 
+    // Historical manual attendance is entered by Admin/BK after an agenda has
+    // ended, so it must not depend on the live activity status or device fields.
+    function canCreateLegacyAttendance() {
+      return isAdminOrBK() &&
+        request.resource.data.method == 'MANUAL_LEGACY' &&
+        request.resource.data.source == 'MANUAL_LEGACY' &&
+        request.resource.data.participantType == 'INTERNAL' &&
+        request.resource.data.participantStatus == 'WAJIB_HADIR' &&
+        request.resource.data.activityId is string &&
+        request.resource.data.agendaId == request.resource.data.activityId &&
+        request.resource.data.memberId is string &&
+        request.resource.data.participantId == request.resource.data.memberId;
+    }
+
     function isAdminOrBK() {
       return isAdmin() || isBK();
     }
@@ -277,7 +291,7 @@ service cloud.firestore {
         (activeAccount() &&
          get(accountPath()).data.memberId == resource.data.memberId);
       // Anggota hanya boleh mencatat dirinya sendiri; operator dapat mencatat peserta.
-      allow create: if (canCreateStaffAttendance() || canCreatePublicGuestAttendance() || canCreatePublicMemberAttendance()) &&
+      allow create: if (canCreateStaffAttendance() || canCreateLegacyAttendance() || canCreatePublicGuestAttendance() || canCreatePublicMemberAttendance()) &&
         attendanceIdMatches(logId);
       // Check-out adalah update pada log yang sama dan dapat dilakukan oleh pemilik atau operator.
       allow update: if attendanceIdentityUnchanged() &&

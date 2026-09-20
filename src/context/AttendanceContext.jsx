@@ -5,7 +5,7 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { getRaportCategory, getDisciplineGrade, calculateAttendanceStatus } from '../utils/raportUtils';
+import { getRaportCategory, getDisciplineGrade, calculateAttendanceStatus, normalizeAttendanceStatus } from '../utils/raportUtils';
 import { getDeviceFingerprint, validateDeviceSingleAttendance } from '../utils/deviceUtils';
 import { DEFAULT_ROOMS, findRoomConflict } from '../utils/roomUtils';
 import { matchAKDCategory, memberHasAKD, matchActivityToAKD, getCanonicalAKDKey, getActivityAKDKey } from '../utils/akdUtils';
@@ -48,6 +48,18 @@ const getActivityStatusKey = (activity) => String(activity?.status || 'ACTIVE').
 
 const getAttendanceDocumentId = (activityId, participantId, participantType = 'INTERNAL') =>
   `${participantType === 'EXTERNAL' ? 'ATT-GST' : 'ATT'}-${activityId}-${participantId}`;
+
+const normalizeLoadedLog = (log) => {
+  const source = String(log?.source || log?.method || '').toUpperCase();
+  const isLegacyManual = log?.isLegacy === true || source.includes('LEGACY') || source.includes('MANUAL_LAMA');
+  if (!isLegacyManual) return log;
+  return {
+    ...log,
+    memberId: log.memberId || (log.participantType !== 'EXTERNAL' ? log.participantId : log.memberId),
+    activityId: log.activityId || log.agendaId,
+    status: normalizeAttendanceStatus(log.status, log),
+  };
+};
 
 const getStableGuestId = (activityId, agency, invitedName) => {
   const identity = `${activityId}-${agency}-${invitedName}`
@@ -230,7 +242,7 @@ export function AttendanceProvider({ children }) {
   const [logs, setLogs] = useState(() => {
     try {
       const stored = localStorage.getItem('siraport_logs');
-      return stored ? JSON.parse(stored) : [];
+      return stored ? JSON.parse(stored).map(normalizeLoadedLog) : [];
     } catch (e) {
       return [];
     }
@@ -315,7 +327,7 @@ export function AttendanceProvider({ children }) {
       bc = new BroadcastChannel('siraport_sync_channel');
       bc.onmessage = (event) => {
         if (event.data?.type === 'LOGS_UPDATED' && Array.isArray(event.data.logs)) {
-          setLogs(event.data.logs.filter(log => !deletedLogIds.includes(log.id)));
+          setLogs(event.data.logs.map(normalizeLoadedLog).filter(log => !deletedLogIds.includes(log.id)));
         }
         if (event.data?.type === 'LOG_DELETED' && event.data.logId) {
           setDeletedLogIds(previous => Array.from(new Set([...previous, event.data.logId])));
@@ -335,7 +347,7 @@ export function AttendanceProvider({ children }) {
 
     const handleStorage = (e) => {
       if (e.key === 'siraport_logs' && e.newValue) {
-        try { setLogs(JSON.parse(e.newValue).filter(log => !deletedLogIds.includes(log.id))); } catch (err) {}
+        try { setLogs(JSON.parse(e.newValue).map(normalizeLoadedLog).filter(log => !deletedLogIds.includes(log.id))); } catch (err) {}
       }
       if (e.key === 'siraport_deleted_log_ids' && e.newValue) {
         try {
@@ -532,6 +544,18 @@ export function AttendanceProvider({ children }) {
       unsubs.push(onSnapshot(logsQuery, (snap) => {
         const firestoreLogs = snap.docs.filter(d => !deletedLogIds.includes(d.id)).map(d => {
             const raw = d.data();
+            const isLegacyManual = raw.isLegacy === true || String(raw.source || raw.method || '').toUpperCase().includes('LEGACY');
+            const normalizedStatus = isLegacyManual
+              ? normalizeAttendanceStatus(raw.status, raw)
+              : raw.status;
+            if (isLegacyManual && raw.status !== normalizedStatus && ['SECRETARIAT_ADMIN', 'PETUGAS_BK'].includes(currentRole)) {
+              void setDoc(doc(db, COL.LOGS, d.id), {
+                status: normalizedStatus,
+                updatedAt: serverTimestamp(),
+              }, { merge: true }).catch(error => {
+                console.warn('Firestore legacy status normalization warning:', error.message);
+              });
+            }
             // Normalisasi timestamp dari Firestore Timestamp objek ke string ISO
             let tsStr = raw.timestamp;
             if (raw.timestamp?.toDate) {
@@ -544,6 +568,7 @@ export function AttendanceProvider({ children }) {
             return {
               id: d.id,
               ...raw,
+              ...(isLegacyManual ? { status: normalizedStatus } : {}),
               timestamp: tsStr
             };
         });
@@ -741,7 +766,7 @@ export function AttendanceProvider({ children }) {
       return noData();
     }
     // Pastikan hanya menghitung log dengan participantType !== 'EXTERNAL' dan memberId match
-    const memberLogs = logs.filter(l => l.memberId === memberId && l.participantType !== 'EXTERNAL' && l.participantCategory !== 'PERSONEL SEKRETARIAT');
+    const memberLogs = logs.filter(l => (l.memberId || l.participantId) === memberId && l.participantType !== 'EXTERNAL' && l.participantCategory !== 'PERSONEL SEKRETARIAT');
     
     // Kumpulkan ID aktivitas dari log absensi yang sudah ada untuk member ini
     // (backward compatible: agar absensi yang sudah dilakukan tetap terhitung meski anggota
@@ -811,27 +836,28 @@ export function AttendanceProvider({ children }) {
     let score = 0, hadir = 0, tepatWaktu = 0, terlambat = 0, terlambatBerat = 0, izin = 0, sakit = 0, dinas = 0, alpa = 0;
     
     relevantActivities.forEach(act => {
-      const log = memberLogs.find(l => l.activityId === act.id);
-      const st = (log?.status || '').toLowerCase();
-      if (!log || st === 'tanpa keterangan' || st === 'alpha' || st === 'alpa') {
+      const log = memberLogs.find(l => (l.activityId || l.agendaId) === act.id);
+      const st = normalizeAttendanceStatus(log?.status, log);
+      if (!log || st === 'Alpha') {
         alpa++;
-      } else if (st === 'hadir' || st === 'hadir tepat waktu' || st.includes('on time')) {
+      } else if (st === 'Hadir') {
         score += 1;
         hadir++;
         tepatWaktu++;
-      } else if (st.includes('terlambat')) {
-        const isHeavyLate = st.includes('terlambat berat') || /terlambat\s+(lebih dari|di atas|>=?)\s*\d+/.test(st);
+      } else if (st === 'Terlambat') {
+        const rawStatus = String(log?.status || '').toLowerCase();
+        const isHeavyLate = rawStatus.includes('terlambat berat') || /terlambat\s+(lebih dari|di atas|>=?)\s*\d+/.test(rawStatus);
         score += isHeavyLate ? 0.5 : 0.8;
         hadir++;
         if (isHeavyLate) terlambatBerat++;
         else terlambat++;
-      } else if (st === 'dinas' || st === 'dinas luar' || st === 'tugas kedinasan') {
+      } else if (st === 'Dinas Luar') {
         score += 1;
         dinas++;
-      } else if (st === 'izin') {
+      } else if (st === 'Izin') {
         score += 0.75;
         izin++;
-      } else if (st === 'sakit') {
+      } else if (st === 'Sakit') {
         score += 0.75;
         sakit++;
       } else {
@@ -997,7 +1023,7 @@ export function AttendanceProvider({ children }) {
         checkOutAt: null,
         durationMinutes: 0,
         checkoutStatus: 'Masih Mengikuti Kegiatan',
-        status: calculatedStatus,
+        status: normalizeAttendanceStatus(calculatedStatus, { method }),
         method,
         operatorName: operatorName || currentUser?.name || 'Mandiri (Mobile Scan)',
         lat,
@@ -2165,7 +2191,7 @@ export function AttendanceProvider({ children }) {
         checkOutAt,
         durationMinutes: checkOutAt ? Math.round((new Date(checkOutAt) - new Date(checkInAt)) / 60000) : 0,
         checkoutStatus: checkOutAt ? 'Selesai/Normal' : 'Selesai Sesuai Jadwal',
-        status: status || 'Hadir',
+        status: normalizeAttendanceStatus(status, { source: 'MANUAL_LEGACY', isLegacy: true }),
         method: 'MANUAL_LEGACY',
         source: 'MANUAL_LEGACY',
         isLegacy: true,
@@ -2195,6 +2221,7 @@ export function AttendanceProvider({ children }) {
         }, { merge: true });
       } catch (e) {
         console.warn('Firestore write legacy log warning:', e);
+        return { success: false, message: `Absensi manual gagal disimpan ke database: ${e.message}` };
       }
 
       await logAudit({
@@ -2319,7 +2346,7 @@ export function AttendanceProvider({ children }) {
           checkOutAt,
           durationMinutes: checkOutAt ? Math.max(0, Math.round((new Date(checkOutAt) - new Date(checkInAt)) / 60000)) : 0,
           checkoutStatus: checkOutAt ? 'Selesai/Normal' : 'Selesai Sesuai Jadwal',
-          status: status || 'Hadir',
+          status: normalizeAttendanceStatus(status, { source: 'MANUAL_LEGACY', isLegacy: true }),
           method: 'MANUAL_LEGACY',
           source: 'MANUAL_LEGACY',
           isLegacy: true,
@@ -2358,7 +2385,7 @@ export function AttendanceProvider({ children }) {
             updatedAt: serverTimestamp(),
           }, { merge: true });
         } catch (e) {
-          console.warn('Firestore batch activity write warning:', e);
+          return { success: false, message: `Agenda manual gagal disimpan ke database: ${e.message}` };
         }
       }
 
@@ -2370,7 +2397,7 @@ export function AttendanceProvider({ children }) {
             updatedAt: serverTimestamp(),
           }, { merge: true });
         } catch (e) {
-          console.warn('Firestore batch log write warning:', e);
+          return { success: false, message: `Absensi manual batch gagal disimpan ke database: ${e.message}` };
         }
       }
 
@@ -2425,7 +2452,7 @@ export function AttendanceProvider({ children }) {
 
       const updatedLog = {
         ...existingLog,
-        status: status || existingLog.status,
+        status: normalizeAttendanceStatus(status ?? existingLog.status, existingLog),
         checkInAt: nextCheckInAt,
         timestamp: nextCheckInAt,
         checkOutAt: nextCheckOutAt,
