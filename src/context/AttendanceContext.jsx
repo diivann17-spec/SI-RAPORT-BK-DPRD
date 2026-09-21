@@ -768,36 +768,16 @@ export function AttendanceProvider({ children }) {
     // Pastikan hanya menghitung log dengan participantType !== 'EXTERNAL' dan memberId match
     const memberLogs = logs.filter(l => (l.memberId || l.participantId) === memberId && l.participantType !== 'EXTERNAL' && l.participantCategory !== 'PERSONEL SEKRETARIAT');
     
-    // Kumpulkan ID aktivitas dari log absensi yang sudah ada untuk member ini
-    // (backward compatible: agar absensi yang sudah dilakukan tetap terhitung meski anggota
-    //  belum terdaftar di participantMemberIds saat itu)
-    const loggedActivityIds = new Set(memberLogs.map(l => l.activityId || l.agendaId).filter(Boolean));
-
     let relevantActivities = activities.filter(activity => {
-      const isInParticipantList = Array.isArray(activity.participantMemberIds) && activity.participantMemberIds.includes(memberId);
-      const hasAttendanceLog = loggedActivityIds.has(activity.id);
-      const activityLog = memberLogs.find(log => (log.activityId || log.agendaId) === activity.id);
-      const isMandatoryParticipant = isInParticipantList &&
+      const participantIds = Array.isArray(activity.participantMemberIds) ? activity.participantMemberIds : [];
+      const isInParticipantList = participantIds.includes(memberId);
+      const activityAKD = getActivityAKDKey(activity);
+      const isAKDMember = member && (
+        activityAKD === 'PARIPURNA' || memberHasAKD(member, activityAKD)
+      );
+      const isMandatoryParticipant = (isInParticipantList || isAKDMember) &&
         (activity.participantStatuses?.[memberId] || 'WAJIB_HADIR') === 'WAJIB_HADIR';
-      const isCountableLog = hasAttendanceLog &&
-        activityLog?.includedInRaport !== false &&
-        (!activityLog?.participantStatus || activityLog.participantStatus === 'WAJIB_HADIR');
-      
-      // Raport keseluruhan mengikuti daftar wajib agenda atau log absensi valid.
-      // Filter AKD di bawah tetap membatasi hasil sesuai kategori AKD.
-      if (!isMandatoryParticipant && !isCountableLog) return false;
-      
-      // Jika terdaftar di peserta, cek status WAJIB_HADIR
-      if (isInParticipantList && activity.participantStatuses?.[memberId] && activity.participantStatuses[memberId] !== 'WAJIB_HADIR') return false;
-      
-      // Jika hanya via log absensi (tidak di daftar peserta), tetap masukkan ke penilaian
-      // kecuali log-nya berstatus 'UNDANGAN' atau 'OPSIONAL'
-      if (!isInParticipantList && hasAttendanceLog) {
-        const log = activityLog;
-        if (log?.participantStatus && log.participantStatus !== 'WAJIB_HADIR') return false;
-        // Jika log.includedInRaport === false secara eksplisit, skip
-        if (log?.includedInRaport === false) return false;
-      }
+      if (!isMandatoryParticipant) return false;
       
       // Filter kategori AKD / Paripurna / ALL
       if (categoryFilter === 'ALL') return true;
@@ -810,7 +790,7 @@ export function AttendanceProvider({ children }) {
 
       // Jika agenda tidak memiliki penanda AKD eksplisit (misal agenda rapat komisi biasa tanpa teks spesifik),
       // dan anggota memiliki AKD yang sedang difilter, cocokkan bila anggota menjadi peserta wajib di agenda tersebut
-      const actAKDKey = getActivityAKDKey(activity);
+      const actAKDKey = activityAKD;
       if (!actAKDKey && member && (categoryFilter === member.komisi || matchAKDCategory(member.komisi, categoryFilter))) {
         return true;
       }

@@ -49,15 +49,14 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
       const m = new Date(act.date).getMonth() + 1;
       if (m > parseInt(selectedMaxMonth, 10)) return false;
     }
-    const activityLog = memberLogs.find(log => (log.activityId || log.agendaId) === act.id);
-    const isMandatoryParticipant = Array.isArray(act.participantMemberIds) &&
-      act.participantMemberIds.includes(memberId) &&
+    const participantIds = Array.isArray(act.participantMemberIds) ? act.participantMemberIds : [];
+    const activityAKD = String(act.category || act.akdOrganizer || act.akd || act.organizer || act.title || '').toLowerCase();
+    const isAKDMember = (
+      /paripurna/i.test(activityAKD) || memberAKDs.some(akd => matchAKDCategory(akd, activityAKD))
+    );
+    const isMandatoryParticipant = (participantIds.includes(memberId) || isAKDMember) &&
       (act.participantStatuses?.[memberId] || 'WAJIB_HADIR') === 'WAJIB_HADIR';
-    const isCountableLog = Boolean(activityLog) &&
-      activityLog.includedInRaport !== false &&
-      (!activityLog.participantStatus || activityLog.participantStatus === 'WAJIB_HADIR');
-    if (!isMandatoryParticipant && !isCountableLog) return false;
-    if (act.participantStatuses?.[memberId] && act.participantStatuses[memberId] !== 'WAJIB_HADIR') return false;
+    if (!isMandatoryParticipant) return false;
     return true;
   });
 
