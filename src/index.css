@@ -514,11 +514,12 @@
   .eraport-modal .print-page {
     display: block !important;
     width: 199mm !important;
-    height: 314mm !important;
-    max-height: 314mm !important;
+    height: auto !important;
+    min-height: 314mm !important;
+    max-height: none !important;
     margin: 0 auto !important;
     padding: 7mm !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     border: 0 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
@@ -528,6 +529,16 @@
 
   .eraport-modal .print-page > * + * {
     margin-top: 2.5mm !important;
+  }
+
+  .eraport-modal .print-page table,
+  .eraport-modal .print-page thead,
+  .eraport-modal .print-page tbody,
+  .eraport-modal .print-page tr,
+  .eraport-modal .print-page th,
+  .eraport-modal .print-page td {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
   }
 
   .eraport-modal .print-page table {

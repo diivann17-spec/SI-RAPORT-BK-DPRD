@@ -44,21 +44,34 @@ export default function ERaportModal({ isOpen, onClose, memberId, reportType = '
   const memberAKDs = getMemberAKDs(member);
   const memberLogs = logs.filter(l => (l.memberId || l.participantId) === memberId && l.participantType !== 'EXTERNAL');
 
-  const filteredActivities = activities.filter(act => {
-    if (selectedMaxMonth !== 'ALL' && act.date) {
-      const m = new Date(act.date).getMonth() + 1;
-      if (m > parseInt(selectedMaxMonth, 10)) return false;
-    }
-    const participantIds = Array.isArray(act.participantMemberIds) ? act.participantMemberIds : [];
-    const activityAKD = String(act.category || act.akdOrganizer || act.akd || act.organizer || act.title || '').toLowerCase();
-    const isAKDMember = (
-      /paripurna/i.test(activityAKD) || memberAKDs.some(akd => matchAKDCategory(akd, activityAKD))
-    );
-    const isMandatoryParticipant = (participantIds.includes(memberId) || isAKDMember) &&
-      (act.participantStatuses?.[memberId] || 'WAJIB_HADIR') === 'WAJIB_HADIR';
-    if (!isMandatoryParticipant) return false;
-    return true;
-  });
+  const historyActivities = activities
+    .filter(act => {
+      if (selectedMaxMonth !== 'ALL' && act.date) {
+        const m = new Date(act.date).getMonth() + 1;
+        if (m > parseInt(selectedMaxMonth, 10)) return false;
+      }
+
+      const participantIds = Array.isArray(act.participantMemberIds) ? act.participantMemberIds : [];
+      const activityAKD = String(act.category || act.akdOrganizer || act.akd || act.organizer || act.title || '').toLowerCase();
+      const hasAttendanceLog = memberLogs.some(log => (log.activityId || log.agendaId) === act.id);
+      const isAKDMember = /paripurna/i.test(activityAKD) || memberAKDs.some(akd => matchAKDCategory(akd, activityAKD));
+      const isParticipantRecord = participantIds.includes(memberId) || isAKDMember || hasAttendanceLog;
+      if (!isParticipantRecord) return false;
+
+      const participantStatus = act.participantStatuses?.[memberId];
+      if (participantStatus && ['TIDAK_HADIR', 'TIDAK_WAJIB', 'BATAL', 'DIBATALKAN'].includes(participantStatus)) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((a, b) => {
+      const aDate = new Date(`${a.date || '1970-01-01'}T${a.startTime || '00:00'}:00`).getTime();
+      const bDate = new Date(`${b.date || '1970-01-01'}T${b.startTime || '00:00'}:00`).getTime();
+      return bDate - aDate;
+    });
+
+  const filteredActivities = historyActivities;
 
   const visibleCategories = reportType === 'AVERAGE'
     ? ['Keseluruhan Agenda Wajib']
